@@ -16,24 +16,154 @@ const app = new App({
   app.message('hello', async ({ message, say }) => {
     // say() sends a message to the channel where the event was triggered
     await say({
-      blocks: [
-        {
-          "type": "section",
-          "text": {
-            "type": "mrkdwn",
-            "text": `Hey there <@${message.user}>!`
-          },
-          "accessory": {
-            "type": "button",
-            "text": {
-              "type": "plain_text",
-              "text": "Click Me"
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Hello friend :wave:"
+                }
             },
-            "action_id": "button_click"
-          }
-        }
-      ],
-      text: `Hey there <@${message.user}>!`
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Question #1",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Answer to question #1",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Question #2",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Answer to question #2",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Question #3",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Answer to question #3",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Question #4",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Answer to question #4",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Question #5",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "plain_text_input-action"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Answer to question #5",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Submit",
+                            "emoji": true
+                        },
+                        "value": "submit_trivia"
+                    }
+                ]
+            }
+        ]
     });
   });
   
