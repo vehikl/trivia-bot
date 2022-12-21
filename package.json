@@ -15,5 +15,9 @@
   "bugs": {
     "url": "https://github.com/vehikl/trivia-bot/issues"
   },
-  "homepage": "https://github.com/vehikl/trivia-bot#readme"
+  "homepage": "https://github.com/vehikl/trivia-bot#readme",
+  "dependencies": {
+    "@slack/bolt": "^3.12.2",
+    "dotenv": "^16.0.3"
+  }
 }
