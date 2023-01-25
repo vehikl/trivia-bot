@@ -21,7 +21,7 @@ const app = new App({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Hello friend :wave:"
+                    "text": "Hello Friend :wave:"
                 }
             },
             {
