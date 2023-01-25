@@ -49,106 +49,107 @@ const app = new App({
                     "emoji": true
                 }
             },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "multiline": true,
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Question #2",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Answer to question #2",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "multiline": true,
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Question #3",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Answer to question #3",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "multiline": true,
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Question #4",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Answer to question #4",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "multiline": true,
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Question #5",
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "plain_text_input-action"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Answer to question #5",
-                    "emoji": true
-                }
-            },
+            // Commented out for faster manual testing
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "multiline": true,
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Question #2",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Answer to question #2",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "multiline": true,
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Question #3",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Answer to question #3",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "multiline": true,
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Question #4",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Answer to question #4",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "multiline": true,
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Question #5",
+            //         "emoji": true
+            //     }
+            // },
+            // {
+            //     "type": "input",
+            //     "element": {
+            //         "type": "plain_text_input",
+            //         "action_id": "plain_text_input-action"
+            //     },
+            //     "label": {
+            //         "type": "plain_text",
+            //         "text": "Answer to question #5",
+            //         "emoji": true
+            //     }
+            // },
             {
                 "type": "actions",
                 "elements": [
