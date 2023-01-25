@@ -160,6 +160,7 @@ const app = new App({
                             "text": "Submit",
                             "emoji": true
                         },
+                        "action_id": "button_click",
                         "value": "submit_trivia"
                     }
                 ]
