@@ -20,8 +20,7 @@ const db = getFirestore(firebaseApp);
 async function getQuizzes(db) {
     const quizzesCol = collection(db, 'quizzes');
     const quizSnapshot = await getDocs(quizzesCol);
-    const quizList = quizSnapshot.docs.map(doc => doc.data());
-    return quizList;
+    return quizSnapshot.docs.map(doc => doc.data());
 }
 
 const app = new App({
