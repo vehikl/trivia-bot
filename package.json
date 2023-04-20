@@ -1,6 +1,7 @@
 {
   "name": "trivia-bot",
   "version": "1.0.0",
+  "type": "module",
   "description": "Trivia bot for creating trivias and submitting answers to them",
   "main": "index.js",
   "scripts": {
@@ -21,5 +22,8 @@
     "dotenv": "^16.0.3",
     "firebase": "^9.16.0",
     "nodemon": "^2.0.20"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.12"
   }
 }
