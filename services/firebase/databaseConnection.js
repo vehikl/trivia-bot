@@ -1,7 +1,11 @@
-import { initializeApp } from 'firebase/app';
-import  { getFirestore } from 'firebase/firestore/lite';
-import dotenv from 'dotenv';
-dotenv.config();
+// import { initializeApp } from 'firebase/app';
+// import  { getFirestore } from 'firebase/firestore/lite';
+// import dotenv from 'dotenv';
+// dotenv.config();
+
+// following this: https://claritydev.net/blog/testing-firestore-locally-with-firebase-emulators
+
+import { getFirestore } from "firebase/firestore/lite";
 
 const firebaseApp = initializeApp({
     apiKey: process.env.FIREBASE_API_KEY,
@@ -13,6 +17,33 @@ const firebaseApp = initializeApp({
     measurementId: process.env.FIREBASE_MEASUREMENT_ID
 });
 
-const firebaseDatabase = getFirestore(firebaseApp);
+let db;
 
-export default firebaseDatabase;
+export function getDb(){
+    return db;
+}
+
+export function setDb(firebaseApp){
+    db = getFirestore(firebaseApp)
+}
+
+if (process.env.NODE_ENV !== "test") {
+    db = getFirestore(firebaseApp);
+}
+
+export default db;
+
+// const admin = require("firebase-admin");
+ 
+ 
+// if (process.env.NODE_ENV !== "test") {
+//   db = admin.firestore();
+// }
+ 
+// exports.getDb = () => {
+//   return db;
+// };
+ 
+// exports.setDb = (database) => {
+//   db = database;
+// };
