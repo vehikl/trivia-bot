@@ -18,12 +18,12 @@
   },
   "homepage": "https://github.com/vehikl/trivia-bot#readme",
   "dependencies": {
-    "@slack/bolt": "^3.12.2",
+    "@slack/bolt": "^3.19.0",
     "dotenv": "^16.0.3",
-    "firebase": "^9.16.0",
-    "nodemon": "^2.0.20"
+    "firebase": "^9.16.0"
   },
   "devDependencies": {
-    "@types/node": "^18.15.12"
+    "@types/node": "^18.15.12",
+    "nodemon": "^2.0.20"
   }
 }
