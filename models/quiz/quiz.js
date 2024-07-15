@@ -9,10 +9,13 @@ export async function getAll() {
 
 export async function addTrivia(question, answer) {
   // Add a new document in collection "cities"
-  const newDoc = await setDoc(doc(firebaseDatabase, "questions", "tacos"), {
-    question,
-    answer,
-  });
-
-  console.log('newDoc', newDoc);
+  try {
+    await setDoc(doc(firebaseDatabase, "questions", "tacos"), {
+      question,
+      answer,
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
