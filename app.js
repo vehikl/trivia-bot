@@ -1,6 +1,7 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
+import {store} from './models/quiz/quiz.js';
 
 dotenv.config();
 
@@ -18,6 +19,8 @@ const app = new App({
 app.command('/trivia', async ({ack, body, say, client, logger}) => {
   await ack();
 
+  const topic = body.text;
+
   const completion = await openai.chat.completions.create({
     messages: [
       {
@@ -29,7 +32,7 @@ app.command('/trivia', async ({ack, body, say, client, logger}) => {
             ' answer 3" "d) Example answer 4", correctAnswer: b]},' +
             ' ...] This is the' +
             ' topic:' +
-            ' ' + body.text,
+            ' ' + topic,
       },
     ],
     model: 'gpt-4o',
@@ -74,6 +77,23 @@ app.command('/trivia', async ({ack, body, say, client, logger}) => {
     );
   });
 
+  app.action('submit', async ({ack, say}) => {
+    await ack();
+
+    const questions = response.map(item => ({
+      question: item.question,
+      options: item.answers,
+      correctAnswer: item.correctAnswer,
+    }));
+
+    const quiz = {
+      topic,
+      questions,
+    };
+    await store(quiz);
+
+  });
+
   await say({
     'text': 'Trivia Based on ' + body.text,
     'blocks': [
@@ -85,31 +105,24 @@ app.command('/trivia', async ({ack, body, say, client, logger}) => {
         },
       },
       ...questionBlocks,
-    ],
-    'attachments': [
       {
-        'blocks':
-            [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "Make sure to review the answers and questions before Submitting! :smile:"
-                },
-                "accessory": {
-                  "type": "button",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "Submit",
-                    "emoji": true
-                  },
-                  "value": "view_alternate_1"
-                }
-              },
-            ],
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': 'Make sure to review the answers and questions before Submitting! :smile:',
+        },
+        'accessory': {
+          'type': 'button',
+          'text': {
+            'type': 'plain_text',
+            'text': 'Submit',
+            'emoji': true,
+          },
+          'value': 'submit_button',
+          'action_id': 'submit',
+        },
       },
     ],
-
   });
 });
 

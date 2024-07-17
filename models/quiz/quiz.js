@@ -7,15 +7,12 @@ export async function getAll() {
         return quizSnapshot.docs.map(doc => doc.data());
 }
 
-export async function addTrivia(question, answer) {
-  // Add a new document in collection "cities"
+export async function store(quiz) {
   try {
-    await setDoc(doc(firebaseDatabase, "questions", "tacos"), {
-      question,
-      answer,
-    });
+    await setDoc(doc(firebaseDatabase, "quizzes", quiz.topic), quiz);
     return true;
   } catch (e) {
+    console.error(e);
     return false;
   }
 }
