@@ -1,11 +1,9 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
-import OpenAI from 'openai';
-import {store} from './models/quiz/quiz.js';
+import {triviaCommand} from './commands/trivia.js';
 
 dotenv.config();
 
-const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 const {App} = slackApp;
 
 const app = new App({
@@ -16,115 +14,7 @@ const app = new App({
   port: process.env.PORT || 3000,
 });
 
-app.command('/trivia', async ({ack, body, say, client, logger}) => {
-  await ack();
-
-  const topic = body.text;
-
-  const completion = await openai.chat.completions.create({
-    messages: [
-      {
-        role: 'system', content: 'You will be provided a topic. You will need to create trivia questions from this topic. Make sure that the message given to the User is string' +
-            ' format so I can JSON parse it. Please only provide 5 questions. \n' +
-            '\n' +
-            'Make sure each string has a property of questions with each object having a question, answers as an array with multiple choice of a,b,c, and d in their own objects' +
-            ' the right answer. An example of the string format would be: [{question: "question text", answers: ["a) Example answer 1","b) Example answer 2","c) Example' +
-            ' answer 3" "d) Example answer 4", correctAnswer: b]},' +
-            ' ...] This is the' +
-            ' topic:' +
-            ' ' + topic,
-      },
-    ],
-    model: 'gpt-4o',
-  });
-
-  const response = JSON.parse(completion.choices[0].message.content);
-
-  let questionBlocks = [];
-  response.forEach((item) => {
-    console.log(JSON.stringify(item));
-
-    questionBlocks.push(
-        {
-          'type': 'section',
-          'text': {
-            'type': 'mrkdwn',
-            'text': item.question,
-          },
-        },
-    );
-
-    item.answers.forEach((answer) => {
-      questionBlocks.push(
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': JSON.stringify(answer),
-            },
-          },
-      );
-    });
-
-    questionBlocks.push(
-        {
-          'type': 'section',
-          'text': {
-            'type': 'mrkdwn',
-            'text': JSON.stringify(item.correctAnswer) + ' is the correct answer',
-          },
-        },
-    );
-  });
-
-  app.action('submit', async ({ack, say}) => {
-    await ack();
-
-    const questions = response.map(item => ({
-      question: item.question,
-      options: item.answers,
-      correctAnswer: item.correctAnswer,
-    }));
-
-    const quiz = {
-      topic,
-      questions,
-    };
-    await store(quiz);
-
-  });
-
-  await say({
-    'text': 'Trivia Based on ' + body.text,
-    'blocks': [
-      {
-        'type': 'header',
-        'text': {
-          'type': 'plain_text',
-          'text': 'Hello Friend, Time for Trivia! :wave:',
-        },
-      },
-      ...questionBlocks,
-      {
-        'type': 'section',
-        'text': {
-          'type': 'mrkdwn',
-          'text': 'Make sure to review the answers and questions before Submitting! :smile:',
-        },
-        'accessory': {
-          'type': 'button',
-          'text': {
-            'type': 'plain_text',
-            'text': 'Submit',
-            'emoji': true,
-          },
-          'value': 'submit_button',
-          'action_id': 'submit',
-        },
-      },
-    ],
-  });
-});
+triviaCommand(app);
 
 (async () => {
   await app.start();
