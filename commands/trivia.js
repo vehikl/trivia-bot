@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import {store} from '../models/quiz/quiz.js';
+import {getAllTopics, store} from '../models/quiz/quiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
@@ -91,32 +91,63 @@ export function triviaCommand(app) {
         },
         ...questionBlocks,
         {
-          "type": "divider"
+          'type': 'divider',
         },
         {
           'type': 'context',
           'elements': [
-              {
-            'type': 'mrkdwn',
-            'text': 'Make sure to review the answers and questions before submitting! 💡',
-          }],
+            {
+              'type': 'mrkdwn',
+              'text': 'Make sure to review the answers and questions before submitting! 💡',
+            },
+          ],
         },
         {
-          "type": "actions",
-          "elements": [
+          'type': 'actions',
+          'elements': [
             {
-              "type": "button",
-              "text": {
-                "type": "plain_text",
-                "text": "Submit",
-                "emoji": true
+              'type': 'button',
+              'text': {
+                'type': 'plain_text',
+                'text': 'Submit',
+                'emoji': true,
               },
-              "value": "submit_button",
-              "action_id": "submit"
-            }
-          ]
-        }
+              'value': 'submit_button',
+              'action_id': 'submit',
+            },
+          ],
+        },
       ],
     });
+  });
+
+  app.command('/all', async ({ack, say}) => {
+    await ack();
+
+    const quizTitles = await getAllTopics();
+
+    const botSays = quizTitles.join('\n');
+
+    await say({
+      'text': 'All trivia titles',
+      'blocks' : [
+        {
+          "type": "header",
+          "text": {
+            "type": "plain_text",
+            "text": "All Trivia topics:",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "text": {
+            "type": "plain_text",
+            "text": botSays,
+            "emoji": true
+          }
+        }
+      ]
+    })
   });
 }
