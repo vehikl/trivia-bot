@@ -35,7 +35,7 @@ export function triviaCommand(app) {
             'type': 'section',
             'text': {
               'type': 'mrkdwn',
-              'text': `*Question ${index}: ${item.question}*`,
+              'text': `*Question ${index + 1}: ${item.question}*`,
             },
           },
       );
@@ -113,16 +113,6 @@ export function triviaCommand(app) {
               },
               "value": "submit_button",
               "action_id": "submit"
-            },
-            {
-              "type": "button",
-              "text": {
-                "type": "plain_text",
-                "text": "Regenerate Trivia",
-                "emoji": true
-              },
-              "value": "regenerate_button",
-              "action_id": "regenerate"
             }
           ]
         }
