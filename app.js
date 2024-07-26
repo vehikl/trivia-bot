@@ -1,6 +1,7 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import {triviaCommand} from './commands/trivia.js';
+import {playCommand}  from './commands/play.js';
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ const app = new App({
 });
 
 triviaCommand(app);
+playCommand(app);
 
 (async () => {
   await app.start();
