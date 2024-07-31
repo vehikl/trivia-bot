@@ -1,4 +1,4 @@
-import {collection, doc, getDocs, setDoc} from 'firebase/firestore/lite';
+import {collection, doc, getDocs, getDoc, setDoc} from 'firebase/firestore/lite';
 import firebaseDatabase from '../../services/firebase/databaseConnection.js';
 
 export async function getAll() {
@@ -13,6 +13,17 @@ export async function getAllTopics() {
   const quizSnapshot = await getDocs(quizzesCol);
 
   return quizSnapshot.docs.map(doc => doc.data().topic);
+}
+
+export async function getTrivia(topic) {
+  const quizzesDocumentReference = doc(firebaseDatabase, 'quizzes', topic);
+  const quizSnapshot = await getDoc(quizzesDocumentReference);
+
+  if (quizSnapshot.exists()) {
+    return quizSnapshot.data();
+  } else {
+    console.log("No such document!");
+  }
 }
 
 export async function store(quiz) {

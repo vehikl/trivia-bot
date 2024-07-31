@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import {getAllTopics, store} from '../models/quiz/quiz.js';
+import {getTrivia} from '../models/quiz/quiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
@@ -7,82 +7,90 @@ export function playCommand(app) {
   app.command('/play', async ({ack, body, client, logger}) => {
     await ack();
 
+    const trivia = await getTrivia(body.text);
+    const questionsBlock = [];
+
+    trivia.questions.forEach((item, index) => {
+      questionsBlock.push(
+          {
+            'label': {
+              'type': 'plain_text',
+              'text': `Question ${index + 1}: ${item.question}`,
+              'emoji': true,
+            },
+            'type': 'input',
+            'element': {
+              'type': 'radio_buttons',
+              'options': [
+                {
+                  'text': {
+                    'type': 'plain_text',
+                    'text': `${item.options[0]}`,
+                    'emoji': true,
+                  },
+                  'value': 'a',
+                },
+                {
+                  'text': {
+                    'type': 'plain_text',
+                    'text': `${item.options[1]}`,
+                    'emoji': true,
+                  },
+                  'value': 'b',
+                },
+                {
+                  'text': {
+                    'type': 'plain_text',
+                    'text': `${item.options[2]}`,
+                    'emoji': true,
+                  },
+                  'value': 'c',
+                },
+                {
+                  'text': {
+                    'type': 'plain_text',
+                    'text': `${item.options[3]}`,
+                    'emoji': true,
+                  },
+                  'value': 'd',
+                },
+              ],
+              'action_id': `radio_buttons-${index}`,
+            },
+          },
+      );
+    });
+
     try {
       const result = await client.views.open({
         trigger_id: body.trigger_id,
         view: {
           type: 'modal',
-          callback_id: 'view_1',
+          callback_id: 'trivia_view',
           title: {
             type: 'plain_text',
-            text: 'Modal title'
+            text: 'Trivia Time',
           },
-            "blocks": [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "Movies Trivia!",
-                  "emoji": true
-                }
+          'blocks': [
+            {
+              'type': 'header',
+              'text': {
+                'type': 'plain_text',
+                'text': `${trivia.topic.toUpperCase()} Trivia :brain:`,
+                'emoji': true,
               },
-              {
-                "type": "input",
-                "element": {
-                  "type": "radio_buttons",
-                  "options": [
-                    {
-                      "text": {
-                        "type": "plain_text",
-                        "text": "a) Titanic",
-                        "emoji": true
-                      },
-                      "value": "value-0"
-                    },
-                    {
-                      "text": {
-                        "type": "plain_text",
-                        "text": "b) Star Wars: The Force Awakens",
-                        "emoji": true
-                      },
-                      "value": "value-1"
-                    },
-                    {
-                      "text": {
-                        "type": "plain_text",
-                        "text": "c) Avengers: Endgame",
-                        "emoji": true
-                      },
-                      "value": "value-2"
-                    },
-                    {
-                      "text": {
-                        "type": "plain_text",
-                        "text": "d) Avatar",
-                        "emoji": true
-                      },
-                      "value": "value-3"
-                    }
-                  ],
-                  "action_id": "radio_buttons-action"
-                },
-                "label": {
-                  "type": "plain_text",
-                  "text": "Question 1: What is the highest-grossing film of all time?",
-                  "emoji": true
-                }
-              }
-            ],
+            },
+            ...questionsBlock,
+          ],
           submit: {
             type: 'plain_text',
-            text: 'Submit'
-          }
-        }
+            text: 'Submit',
+          },
+        },
       });
       logger.info(result);
-    }
-    catch (error) {
+    } catch (error) {
       logger.error(error);
     }
-  })
+  });
 }
