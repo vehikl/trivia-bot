@@ -1,16 +1,50 @@
 import OpenAI from 'openai';
 import {getTrivia} from '../models/quiz/quiz.js';
+import {getSubmission, store} from '../models/submission/submission.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
+let correctAnswers = [];
+let trivia_topic = '';
+let alreadyPlayed = false;
 
 export function playCommand(app) {
   app.command('/play', async ({ack, body, client, logger}) => {
     await ack();
 
+    alreadyPlayed = false;
+
+    const submission = await getSubmission(body.user_id, body.text);
+
+    if (submission) {
+      alreadyPlayed = true;
+    }
+
     const trivia = await getTrivia(body.text);
+    trivia_topic = body.text;
     const questionsBlock = [];
 
+    if (alreadyPlayed) {
+      questionsBlock.push({
+        "type": "rich_text",
+        "elements": [
+          {
+            "type": "rich_text_section",
+            "elements": [
+              {
+                "type": "text",
+                "text": "Note: This submission will not be counted since you've already played.",
+                "style": {
+                  "italic": true
+                }
+              }
+            ]
+          }
+        ]
+      });
+    }
+
     trivia.questions.forEach((item, index) => {
+      correctAnswers.push(item.correctAnswer);
       questionsBlock.push(
           {
             'label': {
@@ -55,15 +89,17 @@ export function playCommand(app) {
                   'value': 'd',
                 },
               ],
-              'action_id': `radio_buttons-${index}`,
-            },
+              'action_id': `radio-buttons-${index}`,
+            }
           },
       );
     });
 
+
     try {
-      const result = await client.views.open({
+      await client.views.open({
         trigger_id: body.trigger_id,
+        channel_id: body.channel_id,
         view: {
           type: 'modal',
           callback_id: 'trivia_view',
@@ -80,7 +116,7 @@ export function playCommand(app) {
                 'emoji': true,
               },
             },
-            ...questionsBlock,
+            ...questionsBlock
           ],
           submit: {
             type: 'plain_text',
@@ -88,9 +124,35 @@ export function playCommand(app) {
           },
         },
       });
-      logger.info(result);
     } catch (error) {
       logger.error(error);
     }
+  });
+
+  app.view('trivia_view', async ({ack, body, client, logger}) => {
+    await ack();
+    let index = 0;
+    let userSubmissions = [];
+    let score = 0;
+
+    for (const property in body.view.state.values) {
+      userSubmissions.push(body.view.state.values[property][`radio-buttons-${index}`]['selected_option']['value']);
+      index++;
+    }
+
+    for (let i = 0; i < userSubmissions.length; i++) {
+      if (userSubmissions[i] === correctAnswers[i]) {
+        score++;
+      }
+    }
+
+    if (!alreadyPlayed) {
+      await store({user_id: body.user.id, user_score: score, topic: trivia_topic, time: Date.now()});
+    }
+
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: `Your Score is: ${score}`
+    });
   });
 }
