@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import {getAllTopics, store} from '../models/quiz/quiz.js';
+import {getAllTopics, store, getPreviousTrivia} from '../models/quiz/quiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
@@ -147,6 +147,88 @@ export function triviaCommand(app) {
             "emoji": true
           }
         }
+      ]
+    })
+  });
+
+  app.command('/answers', async ({ack, say}) => {
+    await ack();
+
+    const trivia = await getPreviousTrivia();
+    const quizTitle = trivia.topic;
+
+    console.log(trivia);
+     let questionBlocks = [];
+      trivia.questions.forEach((item, index) => {
+          questionBlocks.push(
+              {
+                'type': 'section',
+                'text': {
+                  'type': 'mrkdwn',
+                  'text': `*Question ${index + 1}: ${item.question}*`,
+                },
+              },
+          );
+        questionBlocks.push(
+            {
+              'type': 'section',
+              'text': {
+                'type': 'mrkdwn',
+                'text': `Answer: *${item.correctAnswer}*`,
+              },
+            },
+        );
+      })
+     // for each to grab the question title
+    // grab correct answers
+    // map answer to options, get answer text
+    // display
+    // trivia.forEach((item, index) => {
+    //   questionBlocks.push(
+    //       {
+    //         'type': 'section',
+    //         'text': {
+    //           'type': 'mrkdwn',
+    //           'text': `*Question ${index + 1}: ${item.question}*`,
+    //         },
+    //       },
+    //   );
+    //
+    //   item.answers.forEach((answer) => {
+    //     questionBlocks.push(
+    //         {
+    //           'type': 'section',
+    //           'text': {
+    //             'type': 'mrkdwn',
+    //             'text': answer,
+    //           },
+    //         },
+    //     );
+    //   });
+    //
+    //   questionBlocks.push(
+    //       {
+    //         'type': 'section',
+    //         'text': {
+    //           'type': 'mrkdwn',
+    //           'text': `*Answer: ${item.correctAnswer}*`,
+    //         },
+    //       },
+    //   );
+    // });
+
+    await say({
+      'text': 'previous trivia title',
+      'blocks' : [
+        {
+          "type": "header",
+          "text": {
+            "type": "plain_text",
+            "text": quizTitle,//movies
+            "emoji": true
+          }
+        },
+          ...questionBlocks
       ]
     })
   });
