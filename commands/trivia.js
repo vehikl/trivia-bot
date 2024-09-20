@@ -157,7 +157,6 @@ export function triviaCommand(app) {
     const trivia = await getPreviousTrivia();
     const quizTitle = trivia.topic;
 
-    console.log(trivia);
      let questionBlocks = [];
       trivia.questions.forEach((item, index) => {
           questionBlocks.push(
@@ -179,43 +178,6 @@ export function triviaCommand(app) {
             },
         );
       })
-     // for each to grab the question title
-    // grab correct answers
-    // map answer to options, get answer text
-    // display
-    // trivia.forEach((item, index) => {
-    //   questionBlocks.push(
-    //       {
-    //         'type': 'section',
-    //         'text': {
-    //           'type': 'mrkdwn',
-    //           'text': `*Question ${index + 1}: ${item.question}*`,
-    //         },
-    //       },
-    //   );
-    //
-    //   item.answers.forEach((answer) => {
-    //     questionBlocks.push(
-    //         {
-    //           'type': 'section',
-    //           'text': {
-    //             'type': 'mrkdwn',
-    //             'text': answer,
-    //           },
-    //         },
-    //     );
-    //   });
-    //
-    //   questionBlocks.push(
-    //       {
-    //         'type': 'section',
-    //         'text': {
-    //           'type': 'mrkdwn',
-    //           'text': `*Answer: ${item.correctAnswer}*`,
-    //         },
-    //       },
-    //   );
-    // });
 
     await say({
       'text': 'previous trivia title',
