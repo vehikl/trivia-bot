@@ -42,7 +42,7 @@ const previousTrivia = await getPreviousTrivia();
             'type': 'section',
             'text': {
               'type': 'mrkdwn',
-              'text': `Answer: *${item.correctAnswer}*`,
+              'text': `Answer: *${item}*`,
             },
           },
       );

@@ -25,21 +25,21 @@ export function playCommand(app) {
 
     if (alreadyPlayed) {
       questionsBlock.push({
-        "type": "rich_text",
-        "elements": [
+        'type': 'rich_text',
+        'elements': [
           {
-            "type": "rich_text_section",
-            "elements": [
+            'type': 'rich_text_section',
+            'elements': [
               {
-                "type": "text",
-                "text": "Note: This submission will not be counted since you've already played.",
-                "style": {
-                  "italic": true
-                }
-              }
-            ]
-          }
-        ]
+                'type': 'text',
+                'text': 'Note: This submission will not be counted since you\'ve already played.',
+                'style': {
+                  'italic': true,
+                },
+              },
+            ],
+          },
+        ],
       });
     }
 
@@ -90,11 +90,10 @@ export function playCommand(app) {
                 },
               ],
               'action_id': `radio-buttons-${index}`,
-            }
+            },
           },
       );
     });
-
 
     try {
       await client.views.open({
@@ -116,7 +115,7 @@ export function playCommand(app) {
                 'emoji': true,
               },
             },
-            ...questionsBlock
+            ...questionsBlock,
           ],
           submit: {
             type: 'plain_text',
@@ -146,13 +145,65 @@ export function playCommand(app) {
       }
     }
 
+    let trivia = await getTrivia(trivia_topic);
+    console.log(trivia);
+
+    let questionBlocks = [{
+      'type': 'section',
+      'text': {
+        'type': 'mrkdwn',
+        'text': `
+          Thanks for playing! :tada:   
+          `,
+      },
+    }];
+    trivia.questions.forEach((item, index) => {
+      console.log(item);
+      questionBlocks.push(
+          {
+            'type': 'section',
+            'text': {
+              'type': 'mrkdwn',
+              'text': `*Question ${index + 1}: ${item.question}*`,
+            },
+          },
+      );
+
+      const correctText = item.options.filter((option) => {
+        return option[0] === item.correctAnswer;
+      })[0].slice(3);
+
+      let text = 'Correct Answer: ';
+      text += userSubmissions[index] === correctAnswers[index] ? `*${correctText}*` : `${correctText}`;
+
+      questionBlocks.push(
+          {
+            'type': 'section',
+            'text': {
+              'type': 'mrkdwn',
+              'text': text,
+            },
+          },
+      );
+    });
+
+    questionBlocks.push({
+      'type': 'section',
+      'text': {
+        'type': 'mrkdwn',
+        'text': `
+          Your Score is: *${score}/5!*        
+          `,
+      },
+    });
+
     if (!alreadyPlayed) {
       await store({user_id: body.user.id, user_score: score, topic: trivia_topic, time: Date.now()});
     }
 
     await client.chat.postMessage({
       channel: body.user.id,
-      text: `Your Score is: ${score}`
+      blocks: questionBlocks,
     });
   });
 }
