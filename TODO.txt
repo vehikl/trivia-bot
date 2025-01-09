@@ -1,0 +1,13 @@
+RELEASE CHECKLIST
+
+MVPs
+- Cron job to message the trivia channel with the questions of the trivia of the week
+ - User can press button to play and also the command for previous Trivias
+- Host it somewhere for free pls (Netlify, Vercel)
+ - Ask Felipe or Tyler B.
+- Get rid of /trivia command usage for now
+    - Remove it in the Slack options
+
+Nice to Haves
+- Swap /trivia command to use Llama
+- Icon for the Bot

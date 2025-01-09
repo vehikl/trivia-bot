@@ -48,7 +48,6 @@ export async function getNextTrivia() {
 export async function getPreviousTrivia() {
   const nextThursday = getNextThursday();
   const startOfDay = new Date(nextThursday.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(nextThursday.setHours(23, 59, 59, 999));
   let previousTrivia;
 
   const triviaRef = collection(firebaseDatabase, 'quizzes');

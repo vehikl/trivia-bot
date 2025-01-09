@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import {getTrivia} from '../models/quiz/quiz.js';
+import {getPreviousTrivia, getTrivia} from '../models/quiz/quiz.js';
 import {getSubmission, store} from '../models/submission/submission.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
@@ -11,16 +11,24 @@ export function playCommand(app) {
   app.command('/play', async ({ack, body, client, logger}) => {
     await ack();
 
+    let trivia;
+
+    if (!body.text) {
+      trivia = await getPreviousTrivia();
+    } else {
+      trivia = await getTrivia(body.text);
+    }
+
+    trivia_topic = trivia.topic;
+
     alreadyPlayed = false;
 
-    const submission = await getSubmission(body.user_id, body.text);
+    const submission = await getSubmission(body.user_id, trivia_topic);
 
     if (submission) {
       alreadyPlayed = true;
     }
 
-    const trivia = await getTrivia(body.text);
-    trivia_topic = body.text;
     const questionsBlock = [];
 
     if (alreadyPlayed) {
@@ -148,15 +156,17 @@ export function playCommand(app) {
     let trivia = await getTrivia(trivia_topic);
     console.log(trivia);
 
-    let questionBlocks = [{
-      'type': 'section',
-      'text': {
-        'type': 'mrkdwn',
-        'text': `
+    let questionBlocks = [
+      {
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': `
           Thanks for playing! :tada:   
           `,
+        },
       },
-    }];
+    ];
     trivia.questions.forEach((item, index) => {
       console.log(item);
       questionBlocks.push(
