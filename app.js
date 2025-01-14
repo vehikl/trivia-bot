@@ -1,9 +1,11 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
+import cron from 'node-cron';
 import {triviaCommand} from './commands/trivia.js';
 import {playCommand} from './commands/play.js';
 import {getPreviousTrivia} from './models/quiz/quiz.js';
-import cron from 'node-cron';
+import {allCommand} from "./commands/all.js";
+import {answersCommand} from "./commands/answers.js";
 
 dotenv.config();
 
@@ -19,6 +21,8 @@ const app = new App({
 
 triviaCommand(app);
 playCommand(app);
+allCommand(app);
+answersCommand(app);
 const previousTrivia = await getPreviousTrivia();
 
 (async () => {

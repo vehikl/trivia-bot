@@ -168,7 +168,6 @@ export function playCommand(app) {
       },
     ];
     trivia.questions.forEach((item, index) => {
-      console.log(item);
       questionBlocks.push(
           {
             'type': 'section',
@@ -179,12 +178,13 @@ export function playCommand(app) {
           },
       );
 
-      const correctText = item.options.filter((option) => {
+      const correctOption = item.options.filter((option) => {
         return option[0] === item.correctAnswer;
       })[0].slice(3);
 
       let text = 'Correct Answer: ';
-      text += userSubmissions[index] === correctAnswers[index] ? `*${correctText}*` : `${correctText}`;
+      text += userSubmissions[index] === correctAnswers[index]
+          ? `*${correctOption}* :white_check_mark:` : `${correctOption}`;
 
       questionBlocks.push(
           {
