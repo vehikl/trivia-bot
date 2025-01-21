@@ -8,6 +8,16 @@ export function triviaCommand(app) {
   app.command('/trivia', async ({ack, body, say}) => {
     await ack();
 
+    if (!body.text) {
+      await app.client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: "Don't be an idiot sandwich, please pick a topic for trivia :bread:"
+      });
+
+      return;
+    }
+
      await app.client.chat.postEphemeral({
        channel: body.channel_id,
        user: body.user_id,
