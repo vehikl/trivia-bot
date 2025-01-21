@@ -36,26 +36,28 @@ export function triviaCommand(app) {
 const executeCommand = async (app, body, say) => {
   topic = body.text;
 
-  const completion = await openai.chat.completions.create({
-    messages: [
-      {
-        role: 'system', content: 'You will be provided a topic. You will need to create trivia questions from this topic. Make sure that the message given to the User is string' +
-            ' format so I can JSON parse it. Please only provide 5 questions. \n' +
-            '\n' +
-            'Make sure each string has a property of questions with each object having a question, answers as an array with multiple choice of a,b,c, and d in their own objects' +
-            ' the right answer. An example of the string format would be: [{question: "question text", answers: ["a) Example answer 1","b) Example answer 2","c) Example' +
-            ' answer 3" "d) Example answer 4", correctAnswer: b]},' +
-            ' ...] This is the' +
-            ' topic:' +
-            ' ' + topic,
-      },
-    ],
-    model: 'gpt-4o',
-  });
+  // const completion = await openai.chat.completions.create({
+  //   messages: [
+  //     {
+  //       role: 'system', content: 'You will be provided a topic. You will need to create trivia questions from this topic. Make sure that the message given to the User is string' +
+  //           ' format so I can JSON parse it. Please only provide 5 questions. \n' +
+  //           '\n' +
+  //           'Make sure each string has a property of questions with each object having a question, answers as an array with multiple choice of a,b,c, and d in their own objects' +
+  //           ' the right answer. An example of the string format would be: [{question: "question text", answers: ["a) Example answer 1","b) Example answer 2","c) Example' +
+  //           ' answer 3" "d) Example answer 4", correctAnswer: b]},' +
+  //           ' ...] This is the' +
+  //           ' topic:' +
+  //           ' ' + topic,
+  //     },
+  //   ],
+  //   model: 'gpt-4o',
+  // });
+  //
+  // const response = JSON.parse(completion.choices[0].message.content);
 
-  const response = JSON.parse(completion.choices[0].message.content);
+  const response = exampleTriviaResponse;
 
-  // const response = exampleTriviaResponse;
+  let date = null;
 
   let questionBlocks = [];
 
@@ -95,8 +97,17 @@ const executeCommand = async (app, body, say) => {
     const quiz = {
       topic,
       questions,
+      date
     };
+
     await store(quiz);
+  });
+
+  app.action('datepicker', async({ack, body}) => {
+    await ack();
+
+    date = new Date(body['state']['values']['section']['datepicker']['selected_date']);
+    date.setHours(0, 0, 0, 0);
   });
 
   app.action('regenerate', async ({ack}) => {
