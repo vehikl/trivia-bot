@@ -1,12 +1,8 @@
 RELEASE CHECKLIST
 
-MVPs
-- Cron job to message the trivia channel with the questions of the trivia of the week
- - User can press button to play and also the command for previous Trivias
-- Trivia Submit Feedback
-    - save the id of the message sent to the user with the questions and the id of the user
-    - when the user submits, update the original message to not have buttons anymore
-- Figure out datetime with new Trivia
+TODO
+- Figure out datetime with new Trivia questions
+- Get answers to appear in Trivia questions on Cron Schedule
 
 Nice to Haves
 - Icon for the Bot
