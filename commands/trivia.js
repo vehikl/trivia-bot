@@ -100,6 +100,11 @@ const executeCommand = async (app, body, say) => {
       date
     };
 
+    await app.client.chat.update({
+      channel: messageResponse.channel,
+      ts: messageResponse.ts,
+      text: 'Your trivial was submitted! :tada:'
+    });
     await store(quiz);
   });
 
@@ -122,7 +127,7 @@ const executeCommand = async (app, body, say) => {
     await executeCommand(app, body, say);
   });
 
-  await say({
+  const messageResponse = await say({
     'text': 'Trivia Based on ' + body.text,
     'blocks': [
       {
@@ -188,6 +193,8 @@ const executeCommand = async (app, body, say) => {
       },
     ],
   });
+
+  console.log(messageResponse);
 }
 
 const exampleTriviaResponse = [

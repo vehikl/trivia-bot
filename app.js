@@ -27,7 +27,8 @@ const previousTrivia = await getPreviousTrivia();
 
 (async () => {
   await app.start();
-  cron.schedule('0 14 * * 4', async () => {
+  // cron.schedule('0 14 * * 4', async () => {
+  cron.schedule('* * * * *', async () => {
     const quizTitle = previousTrivia.topic;
 
     let questionBlocks = [];
