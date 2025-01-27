@@ -1,8 +1,20 @@
 import OpenAI from 'openai';
 import { store } from '../models/quiz/quiz.js';
+import { zodResponseFormat } from "openai/helpers/zod";
+import { z } from "zod";
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 let topic = '';
+
+const question = z.object({
+  question: z.string(),
+  correctAnswer: z.string(),
+  options: z.array(z.string()),
+});
+
+const triviaQuestions = z.object({
+  questions: z.array(question),
+});
 
 let generateMessageResponse;
 
@@ -53,6 +65,7 @@ const executeCommand = async (app, body, say) => {
       },
     ],
     model: 'gpt-4o',
+    response_format: zodResponseFormat(triviaQuestions, "trivia_questions"),
   });
 
   const response = JSON.parse(completion.choices[0].message.content);
@@ -63,7 +76,7 @@ const executeCommand = async (app, body, say) => {
 
   let questionBlocks = [];
 
-  response.forEach((item, index) => {
+  response.questions.forEach((item, index) => {
     questionBlocks.push(
         {
           'type': 'section',
@@ -74,13 +87,13 @@ const executeCommand = async (app, body, say) => {
         },
     );
 
-    item.answers.forEach((answer) => {
+    item.options.forEach((option) => {
       questionBlocks.push(
           {
             'type': 'section',
             'text': {
               'type': 'mrkdwn',
-              'text': item.correctAnswer === answer[0] ? `*${answer}* :white_check_mark:` : `${answer}`,
+              'text': item.correctAnswer === option[0] ? `*${option}* :white_check_mark:` : `${option}`,
             },
           },
       );
@@ -110,7 +123,7 @@ const executeCommand = async (app, body, say) => {
     await app.client.chat.update({
       channel: messageResponse.channel,
       ts: messageResponse.ts,
-      text: 'Your trivial was submitted! :tada:'
+      text: `Your trivia questions for ${topic} have been submitted! :tada:`
     });
     await store(quiz);
   });

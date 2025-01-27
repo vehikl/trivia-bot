@@ -22,7 +22,8 @@
     "dotenv": "^16.0.3",
     "firebase": "^10.12.3",
     "node-cron": "^3.0.3",
-    "openai": "^4.52.3"
+    "openai": "^4.52.3",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^18.15.12",

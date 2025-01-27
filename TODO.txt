@@ -1,8 +1,9 @@
 RELEASE CHECKLIST
 
 TODO
-- Figure out datetime with new Trivia questions
-- Get answers to appear in Trivia questions on Cron Schedule
+- Only specific Users can use the trivia.js command
 
 Nice to Haves
+- Rename trivia.js to generate.js
+- Figure out datetime with new Trivia questions
 - Icon for the Bot
