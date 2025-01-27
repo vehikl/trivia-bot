@@ -4,12 +4,14 @@ import { store } from '../models/quiz/quiz.js';
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 let topic = '';
 
+let generateMessageResponse;
+
 export function triviaCommand(app) {
   app.command('/trivia', async ({ack, body, say}) => {
     await ack();
 
     if (!body.text) {
-      await app.client.chat.postEphemeral({
+      await app.client.chat.postMessage({
         channel: body.channel_id,
         user: body.user_id,
         text: "Don't be an idiot sandwich, please pick a topic for trivia :bread:"
@@ -18,7 +20,7 @@ export function triviaCommand(app) {
       return;
     }
 
-     await app.client.chat.postEphemeral({
+     generateMessageResponse = await app.client.chat.postMessage({
        channel: body.channel_id,
        user: body.user_id,
        text: 'Generating Trivia... :brain:'
@@ -100,6 +102,11 @@ const executeCommand = async (app, body, say) => {
       date
     };
 
+    await app.client.chat.delete({
+      channel: body.channel_id,
+      ts: generateMessageResponse.ts
+    })
+
     await app.client.chat.update({
       channel: messageResponse.channel,
       ts: messageResponse.ts,
@@ -118,11 +125,11 @@ const executeCommand = async (app, body, say) => {
   app.action('regenerate', async ({ack}) => {
     await ack();
 
-    await app.client.chat.postEphemeral({
+    await app.client.chat.update({
       channel: body.channel_id,
-      user: body.user_id,
+      ts: generateMessageResponse.ts,
       text: 'Regenerating Trivia... :brain:'
-    })
+    });
 
     await executeCommand(app, body, say);
   });
@@ -193,8 +200,6 @@ const executeCommand = async (app, body, say) => {
       },
     ],
   });
-
-  console.log(messageResponse);
 }
 
 const exampleTriviaResponse = [
