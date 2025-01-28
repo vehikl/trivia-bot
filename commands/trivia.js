@@ -1,10 +1,12 @@
 import OpenAI from 'openai';
-import { store } from '../models/quiz/quiz.js';
-import { zodResponseFormat } from "openai/helpers/zod";
-import { z } from "zod";
+import {store} from '../models/quiz/quiz.js';
+import {zodResponseFormat} from 'openai/helpers/zod';
+import {z} from 'zod';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
+
 let topic = '';
+let isValidDateMessage;
 
 const question = z.object({
   question: z.string(),
@@ -26,17 +28,17 @@ export function triviaCommand(app) {
       await app.client.chat.postMessage({
         channel: body.channel_id,
         user: body.user_id,
-        text: "Don't be an idiot sandwich, please pick a topic for trivia :bread:"
+        text: ':bread: Don\'t be an idiot sandwich, please pick a topic for trivia :bread:',
       });
 
       return;
     }
 
-     generateMessageResponse = await app.client.chat.postMessage({
-       channel: body.channel_id,
-       user: body.user_id,
-       text: 'Generating Trivia... :brain:'
-     })
+    generateMessageResponse = await app.client.chat.postMessage({
+      channel: body.channel_id,
+      user: body.user_id,
+      text: 'Generating Trivia... :brain:',
+    });
 
     try {
       await executeCommand(app, body, say);
@@ -65,7 +67,7 @@ const executeCommand = async (app, body, say) => {
       },
     ],
     model: 'gpt-4o',
-    response_format: zodResponseFormat(triviaQuestions, "trivia_questions"),
+    response_format: zodResponseFormat(triviaQuestions, 'trivia_questions'),
   });
 
   const response = JSON.parse(completion.choices[0].message.content);
@@ -103,32 +105,54 @@ const executeCommand = async (app, body, say) => {
   app.action('submit', async ({ack}) => {
     await ack();
 
-    const questions = response.map(item => ({
-      question: item.question,
-      options: item.answers,
-      correctAnswer: item.correctAnswer,
-    }));
+    if (isValidDateMessage) {
+      await app.client.chat.delete({
+        channel: body.channel_id,
+        ts: isValidDateMessage.ts,
+      });
+    }
 
-    const quiz = {
-      topic,
-      questions,
-      date
-    };
+    let validDate = Date.now();
 
-    await app.client.chat.delete({
-      channel: body.channel_id,
-      ts: generateMessageResponse.ts
-    })
+    const selectedDate = new Date(date);
 
-    await app.client.chat.update({
-      channel: messageResponse.channel,
-      ts: messageResponse.ts,
-      text: `Your trivia questions for ${topic} have been submitted! :tada:`
-    });
-    await store(quiz);
+    if (selectedDate < validDate) {
+      isValidDateMessage = await app.client.chat.postMessage({
+        channel: body.channel_id,
+        text: 'Please select a valid date!',
+      });
+      return;
+    }
+
+    try {
+      const questions = response.questions.map(item => ({
+        question: item.question,
+        options: item.options,
+        correctAnswer: item.correctAnswer,
+      }));
+
+      await store({
+        topic,
+        questions,
+        date,
+      });
+
+      await app.client.chat.delete({
+        channel: body.channel_id,
+        ts: generateMessageResponse.ts,
+      });
+
+      await app.client.chat.update({
+        channel: messageResponse.channel,
+        ts: messageResponse.ts,
+        text: `Your Trivia Questions for ${topic} have been submitted! :tada:`,
+      });
+    } catch (e) {
+      console.error(e);
+    }
   });
 
-  app.action('datepicker', async({ack, body}) => {
+  app.action('datepicker', async ({ack, body}) => {
     await ack();
 
     date = new Date(body['state']['values']['section']['datepicker']['selected_date']);
@@ -141,7 +165,7 @@ const executeCommand = async (app, body, say) => {
     await app.client.chat.update({
       channel: body.channel_id,
       ts: generateMessageResponse.ts,
-      text: 'Regenerating Trivia... :brain:'
+      text: 'Regenerating Trivia... :brain:',
     });
 
     await executeCommand(app, body, say);
@@ -171,20 +195,20 @@ const executeCommand = async (app, body, say) => {
         ],
       },
       {
-        "type": "section",
-        "block_id": "section",
-        "text": {
-          "type": "mrkdwn",
-          "text": "Pick a date for when the Trivia will be for."
+        'type': 'section',
+        'block_id': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': 'Pick a date for when the Trivia will be for.',
         },
-        "accessory": {
-          "type": "datepicker",
-          "action_id": "datepicker",
-          "placeholder": {
-            "type": "plain_text",
-            "text": "Select a Date"
-          }
-        }
+        'accessory': {
+          'type': 'datepicker',
+          'action_id': 'datepicker',
+          'placeholder': {
+            'type': 'plain_text',
+            'text': 'Select a Date',
+          },
+        },
       },
       {
         'type': 'actions',
@@ -213,32 +237,32 @@ const executeCommand = async (app, body, say) => {
       },
     ],
   });
-}
+};
 
 const exampleTriviaResponse = [
   {
-    question: "Which fruit is known as the 'King of Fruits'?",
-    answers: [ 'a) Apple', 'b) Mango', 'c) Banana', 'd) Pineapple' ],
-    correctAnswer: 'b'
+    question: 'Which fruit is known as the \'King of Fruits\'?',
+    options: ['a) Apple', 'b) Mango', 'c) Banana', 'd) Pineapple'],
+    correctAnswer: 'b',
   },
   {
     question: 'Which fruit has the highest vitamin C content per 100g?',
-    answers: [ 'a) Orange', 'b) Kiwi', 'c) Strawberry', 'd) Guava' ],
-    correctAnswer: 'd'
+    options: ['a) Orange', 'b) Kiwi', 'c) Strawberry', 'd) Guava'],
+    correctAnswer: 'd',
   },
   {
     question: 'What is the main ingredient in traditional guacamole?',
-    answers: [ 'a) Avocado', 'b) Tomato', 'c) Bell pepper', 'd) Olive' ],
-    correctAnswer: 'a'
+    options: ['a) Avocado', 'b) Tomato', 'c) Bell pepper', 'd) Olive'],
+    correctAnswer: 'a',
   },
   {
     question: 'Which fruit is botanically classified as a berry?',
-    answers: [ 'a) Raspberry', 'b) Strawberry', 'c) Blueberry', 'd) Banana' ],
-    correctAnswer: 'd'
+    options: ['a) Raspberry', 'b) Strawberry', 'c) Blueberry', 'd) Banana'],
+    correctAnswer: 'd',
   },
   {
-    question: "Which fruit is known for having a 'star-shaped' cross section when cut?",
-    answers: [ 'a) Papaya', 'b) Starfruit', 'c) Kiwi', 'd) Dragonfruit' ],
-    correctAnswer: 'b'
-  }
+    question: 'Which fruit is known for having a \'star-shaped\' cross section when cut?',
+    options: ['a) Papaya', 'b) Starfruit', 'c) Kiwi', 'd) Dragonfruit'],
+    correctAnswer: 'b',
+  },
 ];
