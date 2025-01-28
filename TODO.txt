@@ -2,8 +2,14 @@ RELEASE CHECKLIST
 
 TODO
 - Only specific Users can use the trivia.js command
+- Post last weeks trivia to #trivia channel
+- Add correct answers to user message once they submit
 
 Nice to Haves
+- RAG for long form answers
+ - Given information, could we find the answer using OpenAI?
+- Publish score setting based on User
+- Leaderboard
 - Rename trivia.js to generate.js
 - Figure out datetime with new Trivia questions
 - Icon for the Bot
