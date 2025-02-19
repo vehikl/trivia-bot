@@ -159,19 +159,8 @@ export function playCommand(app) {
     }
 
     let trivia = await getTrivia(trivia_topic);
-    console.log(trivia);
 
-    let questionBlocks = [
-      {
-        'type': 'section',
-        'text': {
-          'type': 'mrkdwn',
-          'text': `
-          Thanks for playing! :tada:   
-          `,
-        },
-      },
-    ];
+    let questionBlocks = [];
     trivia.questions.forEach((item, index) => {
       questionBlocks.push(
           {
@@ -187,9 +176,17 @@ export function playCommand(app) {
         return option[0] === item.correctAnswer;
       })[0].slice(3);
 
-      let text = 'Correct Answer: ';
-      text += userSubmissions[index] === correctAnswers[index]
-          ? `*${correctOption}* :white_check_mark:` : `${correctOption}`;
+      const userSubmission = item.options.filter((option) => {
+        return option[0] === userSubmissions[index];
+      })[0].slice(3);
+
+      let text = 'Your Answer: ';
+
+      if (userSubmissions[index] === correctAnswers[index]) {
+        text += `*${correctOption}* :white_check_mark:`;
+      } else {
+        text += `*${userSubmission}* :x: \n\n Correct Answer: *${correctOption}*`
+      }
 
       questionBlocks.push(
           {
@@ -217,6 +214,7 @@ export function playCommand(app) {
     }
 
     await client.chat.postMessage({
+      text: 'Thanks for Playing! :tada:',
       channel: body.user.id,
       blocks: questionBlocks,
     });
