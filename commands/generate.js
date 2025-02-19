@@ -7,6 +7,7 @@ const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
 let topic = '';
 let isValidDateMessage;
+let messageResponses = [];
 
 const question = z.object({
   question: z.string(),
@@ -14,21 +15,21 @@ const question = z.object({
   options: z.array(z.string()),
 });
 
-const triviaQuestions = z.object({
+const generateQuestions = z.object({
   questions: z.array(question),
 });
 
 let generateMessageResponse;
 
-export function triviaCommand(app) {
-  app.command('/trivia', async ({ack, body, say}) => {
+export function generateCommand(app) {
+  app.command('/generate', async ({ack, body, say}) => {
     await ack();
 
     if (!body.text) {
       await app.client.chat.postMessage({
         channel: body.channel_id,
         user: body.user_id,
-        text: ':bread: Don\'t be an idiot sandwich, please pick a topic for trivia :bread:',
+        text: ':bread: Don\'t be an idiot sandwich, please pick a topic to generate questions :bread:',
       });
 
       return;
@@ -37,8 +38,10 @@ export function triviaCommand(app) {
     generateMessageResponse = await app.client.chat.postMessage({
       channel: body.channel_id,
       user: body.user_id,
-      text: 'Generating Trivia... :brain:',
+      text: 'Generating Questions... :brain:',
     });
+
+    messageResponses.push(generateMessageResponse)
 
     try {
       await executeCommand(app, body, say);
@@ -55,11 +58,11 @@ const executeCommand = async (app, body, say) => {
   const completion = await openai.chat.completions.create({
     messages: [
       {
-        role: 'system', content: 'You will be provided a topic. You will need to create trivia questions from this topic. Make sure that the message given to the User is string' +
-            ' format so I can JSON parse it. Please only provide 5 questions. \n' +
+        role: 'system', content: 'You will be provided a topic. You will need to create questions from this topic. Make sure that the message given to the User is string' +
+            ' format so I can JSON parse it. Please only provide 5 questions. Participants will be Adults and the questions should be appropriate for them. \n' +
             '\n' +
             'Make sure each string has a property of questions with each object having a question, answers as an array with multiple choice of a,b,c, and d in their own objects' +
-            ' the right answer. An example of the string format would be: [{question: "question text", answers: ["a) Example answer 1","b) Example answer 2","c) Example' +
+            ' the right answer. An example of the string format must be: [{question: "Which answer is correct?", answers: ["a) Example answer 1","b) Example answer 2","c) Example' +
             ' answer 3" "d) Example answer 4", correctAnswer: b]},' +
             ' ...] This is the' +
             ' topic:' +
@@ -67,12 +70,12 @@ const executeCommand = async (app, body, say) => {
       },
     ],
     model: 'gpt-4o',
-    response_format: zodResponseFormat(triviaQuestions, 'trivia_questions'),
+    response_format: zodResponseFormat(generateQuestions, 'generate_questions'),
   });
 
   const response = JSON.parse(completion.choices[0].message.content);
 
-  // const response = exampleTriviaResponse;
+  // const response = exampleGenerateResponse;
 
   let date = null;
 
@@ -100,6 +103,30 @@ const executeCommand = async (app, body, say) => {
           },
       );
     });
+  });
+
+  app.action('datepicker', async ({ack, body}) => {
+    await ack();
+
+    date = new Date(body['state']['values']['section']['datepicker']['selected_date']);
+    date.setHours(0, 0, 0, 0);
+  });
+
+  app.action('regenerate', async ({ack}) => {
+    await ack();
+
+    await app.client.chat.update({
+      channel: body.channel_id,
+      ts: generateMessageResponse.ts,
+      text: 'Regenerating Questions... :brain:',
+    });
+
+    await app.client.chat.delete({
+      channel: body.channel_id,
+      ts: messageResponse.ts
+    })
+
+    await executeCommand(app, body, say);
   });
 
   app.action('submit', async ({ack}) => {
@@ -137,48 +164,31 @@ const executeCommand = async (app, body, say) => {
         date,
       });
 
-      await app.client.chat.delete({
-        channel: body.channel_id,
-        ts: generateMessageResponse.ts,
-      });
+      for (const message of messageResponses) {
+        await app.client.chat.delete({
+          channel: body.channel_id,
+          ts: message.ts,
+        });
+      }
 
       await app.client.chat.update({
         channel: messageResponse.channel,
         ts: messageResponse.ts,
-        text: `Your Trivia Questions for ${topic} have been submitted! :tada:`,
+        text: `Your Questions for ${topic} have been submitted! :tada:`,
       });
     } catch (e) {
       console.error(e);
     }
   });
 
-  app.action('datepicker', async ({ack, body}) => {
-    await ack();
-
-    date = new Date(body['state']['values']['section']['datepicker']['selected_date']);
-    date.setHours(0, 0, 0, 0);
-  });
-
-  app.action('regenerate', async ({ack}) => {
-    await ack();
-
-    await app.client.chat.update({
-      channel: body.channel_id,
-      ts: generateMessageResponse.ts,
-      text: 'Regenerating Trivia... :brain:',
-    });
-
-    await executeCommand(app, body, say);
-  });
-
   const messageResponse = await say({
-    'text': 'Trivia Based on ' + body.text,
+    'text': 'Questions Based on ' + body.text,
     'blocks': [
       {
         'type': 'header',
         'text': {
           'type': 'plain_text',
-          'text': 'Hello Friend! It\'s time for Trivia! :bulb: :brain:',
+          'text': 'Hello Friend! Time to generate some questions! :bulb: :brain:',
         },
       },
       ...questionBlocks,
@@ -199,7 +209,7 @@ const executeCommand = async (app, body, say) => {
         'block_id': 'section',
         'text': {
           'type': 'mrkdwn',
-          'text': 'Pick a date for when the Trivia will be for.',
+          'text': 'Pick a date for when the Questions will be for.',
         },
         'accessory': {
           'type': 'datepicker',
@@ -237,9 +247,11 @@ const executeCommand = async (app, body, say) => {
       },
     ],
   });
+
+  messageResponses.push(messageResponse);
 };
 
-const exampleTriviaResponse = [
+const exampleGenerateResponse = [
   {
     question: 'Which fruit is known as the \'King of Fruits\'?',
     options: ['a) Apple', 'b) Mango', 'c) Banana', 'd) Pineapple'],
@@ -265,4 +277,4 @@ const exampleTriviaResponse = [
     options: ['a) Papaya', 'b) Starfruit', 'c) Kiwi', 'd) Dragonfruit'],
     correctAnswer: 'b',
   },
-];
+]; 

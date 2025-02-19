@@ -1,11 +1,11 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import {triviaCommand} from './commands/trivia.js';
 import {playCommand, playTime} from './commands/play.js';
 import {getPreviousTrivia} from './models/quiz/quiz.js';
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
+import {generateCommand} from "./commands/generate.js";
 
 dotenv.config();
 
@@ -19,10 +19,11 @@ const app = new App({
   port: process.env.PORT || 3000,
 });
 
-triviaCommand(app);
 playCommand(app);
 allCommand(app);
 answersCommand(app);
+generateCommand(app);
+
 const previousTrivia = await getPreviousTrivia();
 
 (async () => {
@@ -55,7 +56,6 @@ const previousTrivia = await getPreviousTrivia();
     app.action('play', async ({ack, body, client, logger}) => {
       await playTime(ack, body,  client, logger);
 
-      console.log(body,  client);
       await client.views.open({
         trigger_id: body.trigger_id,
         channel_id: body.channel_id,
@@ -71,7 +71,7 @@ const previousTrivia = await getPreviousTrivia();
               'type': 'header',
               'text': {
                 'type': 'plain_text',
-                'text': `some topic Trivia :brain:`,
+                'text': `${quizTitle} Trivia :brain:`,
                 'emoji': true,
               },
             },
