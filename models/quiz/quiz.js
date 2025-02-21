@@ -15,15 +15,17 @@ export async function getAllTopics() {
   return quizSnapshot.docs.map(doc => doc.data().topic);
 }
 
-export async function getTrivia(topic) {
-  const quizzesDocumentReference = doc(firebaseDatabase, 'quizzes', topic);
-  const quizSnapshot = await getDoc(quizzesDocumentReference);
-
-  if (quizSnapshot.exists()) {
-    return quizSnapshot.data();
-  } else {
-    console.log('No such document!');
-  }
+export async function getTrivia(quiz) {
+  let quizDoc = {};
+  const q = query(collection(firebaseDatabase, "quizzes"),
+      where("date", "==", quiz.date));
+  const getDocQuery = await getDocs(q);
+  getDocQuery.forEach((doc) => {
+    if (doc) {
+      quizDoc = doc.data();
+    }
+  })
+  return quizDoc;
 }
 
 export async function getNextTrivia() {
@@ -66,7 +68,7 @@ export async function getPreviousTrivia() {
 
 export async function store(quiz) {
   try {
-    await setDoc(doc(firebaseDatabase, 'quizzes', quiz.topic), quiz);
+    await setDoc(doc(firebaseDatabase, 'quizzes', quiz.date.toDateString()), quiz);
     return true;
   } catch (e) {
     console.error(e);

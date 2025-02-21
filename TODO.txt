@@ -1,8 +1,6 @@
 RELEASE CHECKLIST
 
 TODO
-- Add uniqueness to quiz documents
-- Make sure submissions are updated with the new quiz document ids
 - Post last weeks trivia to #trivia channel
 - Only specific Users can use the trivia.js command
 - Icon for the Bot

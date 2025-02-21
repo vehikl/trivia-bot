@@ -2,13 +2,11 @@ import {getPreviousTrivia, getTrivia} from '../models/quiz/quiz.js';
 import {getSubmission, store} from '../models/submission/submission.js';
 
 let correctAnswers = [];
-let trivia_topic = '';
+let trivia;
 let alreadyPlayed = false;
 
 export async function playTime(ack, body, client, logger) {
   await ack();
-
-  let trivia;
 
   if (!body.text) {
     trivia = await getPreviousTrivia();
@@ -16,11 +14,9 @@ export async function playTime(ack, body, client, logger) {
     trivia = await getTrivia(body.text);
   }
 
-  trivia_topic = trivia.topic;
-
   alreadyPlayed = false;
 
-  const submission = await getSubmission(body.user_id, trivia_topic);
+  const submission = await getSubmission(body.user_id, trivia);
 
   if (submission) {
     alreadyPlayed = true;
@@ -154,10 +150,10 @@ export function playCommand(app) {
       }
     }
 
-    let trivia = await getTrivia(trivia_topic);
+    let triviaDocument = await getTrivia(trivia);
 
     let questionBlocks = [];
-    trivia.questions.forEach((item, index) => {
+    triviaDocument.questions.forEach((item, index) => {
       questionBlocks.push(
           {
             'type': 'section',
@@ -205,8 +201,19 @@ export function playCommand(app) {
       },
     });
 
+    const date = new Date(triviaDocument.date.seconds * 1000); // Multiply by 1000 to convert seconds to milliseconds
+    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+    const formattedDate = date.toLocaleDateString('en-US', options);
+    const finalDate = formattedDate.split(',').join();
+
     if (!alreadyPlayed) {
-      await store({user_id: body.user.id, user_score: score, topic: trivia_topic, time: Date.now()});
+      await store({
+        user_id: body.user.id,
+        user_score: score,
+        topic: triviaDocument.topic,
+        date: finalDate,
+        time: Date.now()
+      });
     }
 
     await client.chat.postMessage({
