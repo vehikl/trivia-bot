@@ -1,13 +1,14 @@
 RELEASE CHECKLIST
 
 TODO
-- Rename trivia.js to generate.js
-- Only specific Users can use the trivia.js command
+- Add uniqueness to quiz documents
+- Make sure submissions are updated with the new quiz document ids
 - Post last weeks trivia to #trivia channel
+- Only specific Users can use the trivia.js command
 - Icon for the Bot
 
 Nice to Haves
-- RAG for long form answers
+- For long form answers
  - Given information, could we find the answer using OpenAI?
 - Publish score setting based on User
 - Leaderboard

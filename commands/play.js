@@ -1,8 +1,6 @@
-import OpenAI from 'openai';
 import {getPreviousTrivia, getTrivia} from '../models/quiz/quiz.js';
 import {getSubmission, store} from '../models/submission/submission.js';
 
-const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 let correctAnswers = [];
 let trivia_topic = '';
 let alreadyPlayed = false;
@@ -135,8 +133,6 @@ export async function playTime(ack, body, client, logger) {
   }
 }
 export function playCommand(app) {
-
-
   app.command('/play', async ({ack, body, client, logger}) => {
     await playTime(ack, body, client, logger);
   });
