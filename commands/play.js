@@ -1,5 +1,5 @@
-import {getPreviousTrivia, getTrivia} from '../models/quiz/quiz.js';
-import {getSubmission, store} from '../models/submission/submission.js';
+import { getPreviousTrivia, getTrivia } from '../models/quiz/quiz.js';
+import { getSubmission, store } from '../models/submission/submission.js';
 
 let correctAnswers = [];
 let trivia;
@@ -16,7 +16,7 @@ export async function playTime(ack, body, client, logger) {
 
   alreadyPlayed = false;
 
-  const submission = await getSubmission(body.user_id, trivia);
+  const submission = await getSubmission(body.user_id ?? body.user.id, trivia);
 
   if (submission) {
     alreadyPlayed = true;
@@ -47,52 +47,52 @@ export async function playTime(ack, body, client, logger) {
   trivia.questions.forEach((item, index) => {
     correctAnswers.push(item.correctAnswer);
     questionsBlock.push(
-        {
-          'label': {
-            'type': 'plain_text',
-            'text': `Question ${index + 1}: ${item.question}`,
-            'emoji': true,
-          },
-          'type': 'input',
-          'element': {
-            'type': 'radio_buttons',
-            'options': [
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[0]}`,
-                  'emoji': true,
-                },
-                'value': 'a',
-              },
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[1]}`,
-                  'emoji': true,
-                },
-                'value': 'b',
-              },
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[2]}`,
-                  'emoji': true,
-                },
-                'value': 'c',
-              },
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[3]}`,
-                  'emoji': true,
-                },
-                'value': 'd',
-              },
-            ],
-            'action_id': `radio-buttons-${index}`,
-          },
+      {
+        'label': {
+          'type': 'plain_text',
+          'text': `Question ${index + 1}: ${item.question}`,
+          'emoji': true,
         },
+        'type': 'input',
+        'element': {
+          'type': 'radio_buttons',
+          'options': [
+            {
+              'text': {
+                'type': 'plain_text',
+                'text': `${item.options[0]}`,
+                'emoji': true,
+              },
+              'value': 'a',
+            },
+            {
+              'text': {
+                'type': 'plain_text',
+                'text': `${item.options[1]}`,
+                'emoji': true,
+              },
+              'value': 'b',
+            },
+            {
+              'text': {
+                'type': 'plain_text',
+                'text': `${item.options[2]}`,
+                'emoji': true,
+              },
+              'value': 'c',
+            },
+            {
+              'text': {
+                'type': 'plain_text',
+                'text': `${item.options[3]}`,
+                'emoji': true,
+              },
+              'value': 'd',
+            },
+          ],
+          'action_id': `radio-buttons-${index}`,
+        },
+      },
     );
   });
 
@@ -129,11 +129,11 @@ export async function playTime(ack, body, client, logger) {
   }
 }
 export function playCommand(app) {
-  app.command('/play', async ({ack, body, client, logger}) => {
+  app.command('/play', async ({ ack, body, client, logger }) => {
     await playTime(ack, body, client, logger);
   });
 
-  app.view('trivia_view', async ({ack, body, client, logger}) => {
+  app.view('trivia_view', async ({ ack, body, client, logger }) => {
     await ack();
     let index = 0;
     let userSubmissions = [];
@@ -152,16 +152,30 @@ export function playCommand(app) {
 
     let triviaDocument = await getTrivia(trivia);
 
-    let questionBlocks = [];
+    const submission = await getSubmission(body.user_id, trivia);
+
+    if (submission) {
+      alreadyPlayed = true;
+    }
+
+    let questionBlocks = [
+      {
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': `Topic: *${trivia.topic.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')}*\n`,
+        },
+      },
+    ];
     triviaDocument.questions.forEach((item, index) => {
       questionBlocks.push(
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': `*Question ${index + 1}: ${item.question}*`,
-            },
+        {
+          'type': 'section',
+          'text': {
+            'type': 'mrkdwn',
+            'text': `*Question ${index + 1}: ${item.question}*`,
           },
+        },
       );
 
       const correctOption = item.options.filter((option) => {
@@ -181,13 +195,13 @@ export function playCommand(app) {
       }
 
       questionBlocks.push(
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': text,
-            },
+        {
+          'type': 'section',
+          'text': {
+            'type': 'mrkdwn',
+            'text': text,
           },
+        },
       );
     });
 
@@ -200,6 +214,26 @@ export function playCommand(app) {
           `,
       },
     });
+
+    if (alreadyPlayed) {
+      questionBlocks.push({
+        'type': 'rich_text',
+        'elements': [
+          {
+            'type': 'rich_text_section',
+            'elements': [
+              {
+                'type': 'text',
+                'text': 'Note: This submission will not be counted since you\'ve already played.',
+                'style': {
+                  'italic': true,
+                },
+              },
+            ],
+          },
+        ],
+      });
+    }
 
     const date = new Date(triviaDocument.date.seconds * 1000); // Multiply by 1000 to convert seconds to milliseconds
     const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };

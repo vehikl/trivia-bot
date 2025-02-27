@@ -113,6 +113,162 @@ const previousTrivia = await getPreviousTrivia();
     }
   });
 
+  app.event('app_home_opened', async ({ event, client }) => {
+    try {
+      // Display App Home
+      await displayHome(event.user);
+    } catch (error) {
+      console.error(error);
+    }
+  });
+
+  const displayHome = async(user) => {
+    try {
+      await app.client.views.publish({
+        user_id: user,
+        view: await updateView(user)
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const updateView = async(user) => {
+    let blocks = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Welcome to Thursday's Trivia!* :brain:\nTest your knowledge and compete with your colleagues in our weekly trivia game. Every Thursday, we'll have exciting new questions on various topics!"
+        }
+      },
+      {
+        type: "divider"
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*How to Play:*\n• Wait for the trivia questions to be posted in the channel\n• Click the 'Play' button to participate\n• Answer the questions when prompted\n• See how you rank against your colleagues!"
+        }
+      },
+      {
+        type: "divider"
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "Ready to test your knowledge? Use the button below or type `/play` in any channel to join the current trivia game!"
+        },
+        accessory: {
+          type: "button",
+          action_id: "play_trivia",
+          text: {
+            type: "plain_text",
+            text: "Play Trivia",
+            emoji: true
+          },
+          value: "play_command"
+        }
+      }
+    ];
+    let view = {
+      type: 'home',
+      title: {
+        type: 'plain_text',
+        text: 'Thursday\'s Trivia'
+      },
+      blocks: blocks
+    }
+    return JSON.stringify(view);
+  };
+
+  app.action('play_trivia', async ({ ack, body, client, logger }) => {
+    try {
+      await ack();
+      await playTime(ack, body, client, logger);
+    } catch (error) {
+      console.error('Error handling play_trivia action:', error);
+    }
+  });
+
+  app.action(/add_.*/, async ({ ack, body, client }) => {
+    await ack();
+    await openModal(client, body.trigger_id);
+  });
+
+  const openModal = async(client, trigger_id) => {
+    const modal = {
+      type: 'modal',
+      title: {
+        type: 'plain_text',
+        text: 'Create a stickie note'
+      },
+      submit: {
+        type: 'plain_text',
+        text: 'Create'
+      },
+      blocks: [
+        // Text input
+        {
+          "type": "input",
+          "block_id": "note01",
+          "label": {
+            "type": "plain_text",
+            "text": "Note"
+          },
+          "element": {
+            "action_id": "content",
+            "type": "plain_text_input",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "Take a note... "
+            },
+            "multiline": true
+          }
+        },
+        // Drop-down menu
+        {
+          "type": "input",
+          "block_id": "note02",
+          "label": {
+            "type": "plain_text",
+            "text": "Color",
+          },
+          "element": {
+            "type": "static_select",
+            "action_id": "color",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "yellow"
+                },
+                "value": "yellow"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "blue"
+                },
+                "value": "blue"
+              }
+            ]
+          }
+        }
+      ]
+    };
+
+    try {
+      await client.views.open({
+        trigger_id: trigger_id,
+        view: modal
+      });
+    } catch (error) {
+      console.error('Error opening modal:', error);
+    }
+  };
 
   console.log('⚡️ Bolt app is running!');
 })();
