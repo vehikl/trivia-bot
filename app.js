@@ -1,11 +1,11 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import {playCommand, playTime} from './commands/play.js';
-import {getPreviousTrivia} from './models/quiz/quiz.js';
+import {getLastWeeksTrivia, getTrivia} from './models/quiz/quiz.js';
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
+import {getSubmission, store} from "./models/submission/submission.js";
 
 dotenv.config();
 
@@ -19,16 +19,15 @@ const app = new App({
   port: process.env.PORT || 3000,
 });
 
-playCommand(app);
 allCommand(app);
 answersCommand(app);
 generateCommand(app);
 
-const previousTrivia = await getPreviousTrivia();
+const previousTrivia = await getLastWeeksTrivia();
 
 (async () => {
   await app.start();
-  cron.schedule('0 14 * * 4', async () => {
+  cron.schedule('* */1 * * *', async () => {
     const quizTitle = previousTrivia.topic;
 
     let questionBlocks = [];
@@ -42,47 +41,16 @@ const previousTrivia = await getPreviousTrivia();
             },
           },
       );
-      questionBlocks.push(
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': `${item.options.join('\n')}`,
-            },
-          },
-      );
     });
 
     app.action('play', async ({ack, body, client, logger}) => {
-      await playTime(ack, body,  client, logger);
-
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        channel_id: body.channel_id,
-        view: {
-          type: 'modal',
-          callback_id: 'trivia_view',
-          title: {
-            type: 'plain_text',
-            text: 'Trivia Time',
-          },
-          'blocks': [
-            {
-              'type': 'header',
-              'text': {
-                'type': 'plain_text',
-                'text': `${quizTitle} Trivia :brain:`,
-                'emoji': true,
-              },
-            },
-          ],
-          submit: {
-            type: 'plain_text',
-            text: 'Submit',
-          },
-        },
-      });
-
+      // Always acknowledge the action first
+      await ack();
+      try {
+        await playTime(ack, body, client, logger);
+      } catch (error) {
+        logger.error('Error opening trivia modal:', error);
+      }
     });
 
     try {
@@ -90,6 +58,13 @@ const previousTrivia = await getPreviousTrivia();
         channel: 'C04D6JZ0L67',  // to be replaced with Trivia Channel ID
         text: `*${quizTitle}*`,
         blocks: [
+          {
+            'type': 'section',
+            'text': {
+              'type': 'mrkdwn',
+              'text': `*Your ${quizTitle} Trivia *`,
+            },
+          },
             ...questionBlocks,
           {
             'type': 'actions',
@@ -159,19 +134,24 @@ const previousTrivia = await getPreviousTrivia();
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "Ready to test your knowledge? Use the button below or type `/play` in any channel to join the current trivia game!"
+          text: "Ready to test your knowledge? Use the button below to join the current trivia game!"
         },
-        accessory: {
-          type: "button",
-          action_id: "play_trivia",
-          text: {
-            type: "plain_text",
-            text: "Play Trivia",
-            emoji: true
+      },
+      {
+        'type': 'actions',
+        'elements': [
+          {
+            'type': 'button',
+            'text': {
+              'type': 'plain_text',
+              'text': 'Play',
+              'emoji': true,
+            },
+            'value': 'play_button',
+            'action_id': 'play',
           },
-          value: "play_command"
-        }
-      }
+        ],
+      },
     ];
     let view = {
       type: 'home',
@@ -186,89 +166,272 @@ const previousTrivia = await getPreviousTrivia();
 
   app.action('play_trivia', async ({ ack, body, client, logger }) => {
     try {
+      // Always acknowledge the action first
       await ack();
+
       await playTime(ack, body, client, logger);
     } catch (error) {
       console.error('Error handling play_trivia action:', error);
     }
   });
 
-  app.action(/add_.*/, async ({ ack, body, client }) => {
-    await ack();
-    await openModal(client, body.trigger_id);
-  });
-
-  const openModal = async(client, trigger_id) => {
-    const modal = {
-      type: 'modal',
-      title: {
-        type: 'plain_text',
-        text: 'Create a stickie note'
-      },
-      submit: {
-        type: 'plain_text',
-        text: 'Create'
-      },
-      blocks: [
-        // Text input
-        {
-          "type": "input",
-          "block_id": "note01",
-          "label": {
-            "type": "plain_text",
-            "text": "Note"
-          },
-          "element": {
-            "action_id": "content",
-            "type": "plain_text_input",
-            "placeholder": {
-              "type": "plain_text",
-              "text": "Take a note... "
-            },
-            "multiline": true
-          }
-        },
-        // Drop-down menu
-        {
-          "type": "input",
-          "block_id": "note02",
-          "label": {
-            "type": "plain_text",
-            "text": "Color",
-          },
-          "element": {
-            "type": "static_select",
-            "action_id": "color",
-            "options": [
-              {
-                "text": {
-                  "type": "plain_text",
-                  "text": "yellow"
-                },
-                "value": "yellow"
-              },
-              {
-                "text": {
-                  "type": "plain_text",
-                  "text": "blue"
-                },
-                "value": "blue"
-              }
-            ]
-          }
-        }
-      ]
-    };
-
-    try {
-      await client.views.open({
-        trigger_id: trigger_id,
-        view: modal
-      });
-    } catch (error) {
-      console.error('Error opening modal:', error);
-    }
-  };
-
   console.log('⚡️ Bolt app is running!');
 })();
+
+let correctAnswers = [];
+let trivia;
+let alreadyPlayed = false;
+
+async function playTime(ack, body, client, logger) {
+  await ack();
+
+  if (!body.text) {
+    trivia = await getLastWeeksTrivia();
+  } else {
+    trivia = await getTrivia(body.text);
+  }
+
+  alreadyPlayed = false;
+
+  const submission = await getSubmission(body.user_id ?? body.user.id, trivia);
+
+  if (submission) {
+    alreadyPlayed = true;
+  }
+
+  const questionsBlock = [];
+
+  if (alreadyPlayed) {
+    questionsBlock.push({
+      'type': 'rich_text',
+      'elements': [
+        {
+          'type': 'rich_text_section',
+          'elements': [
+            {
+              'type': 'text',
+              'text': 'Note: This submission will not be counted since you\'ve already played.',
+              'style': {
+                'italic': true,
+              },
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  trivia.questions.forEach((item, index) => {
+    correctAnswers.push(item.correctAnswer);
+    questionsBlock.push(
+        {
+          'label': {
+            'type': 'plain_text',
+            'text': `Question ${index + 1}: ${item.question}`,
+            'emoji': true,
+          },
+          'type': 'input',
+          'element': {
+            'type': 'radio_buttons',
+            'options': [
+              {
+                'text': {
+                  'type': 'plain_text',
+                  'text': `${item.options[0]}`,
+                  'emoji': true,
+                },
+                'value': 'a',
+              },
+              {
+                'text': {
+                  'type': 'plain_text',
+                  'text': `${item.options[1]}`,
+                  'emoji': true,
+                },
+                'value': 'b',
+              },
+              {
+                'text': {
+                  'type': 'plain_text',
+                  'text': `${item.options[2]}`,
+                  'emoji': true,
+                },
+                'value': 'c',
+              },
+              {
+                'text': {
+                  'type': 'plain_text',
+                  'text': `${item.options[3]}`,
+                  'emoji': true,
+                },
+                'value': 'd',
+              },
+            ],
+            'action_id': `radio-buttons-${index}`,
+          },
+        },
+    );
+  });
+
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      channel_id: body.channel_id,
+      view: {
+        type: 'modal',
+        callback_id: 'trivia_view',
+        title: {
+          type: 'plain_text',
+          text: 'Trivia Time',
+        },
+        'blocks': [
+          {
+            'type': 'header',
+            'text': {
+              'type': 'plain_text',
+              'text': `${trivia.topic.toUpperCase()} Trivia :brain:`,
+              'emoji': true,
+            },
+          },
+          ...questionsBlock,
+        ],
+        submit: {
+          type: 'plain_text',
+          text: 'Submit',
+        },
+      },
+    });
+  } catch (error) {
+    logger.error(error);
+  }
+}
+
+app.view('trivia_view', async ({ ack, body, client }) => {
+  await ack();
+  let index = 0;
+  let userSubmissions = [];
+  let score = 0;
+  if (!body.text) {
+    trivia = await getLastWeeksTrivia();
+  } else {
+    trivia = await getTrivia(body.text);
+  }
+
+  for (const property in body.view.state.values) {
+    userSubmissions.push(body.view.state.values[property][`radio-buttons-${index}`]['selected_option']['value']);
+    index++;
+  }
+
+  for (let i = 0; i < userSubmissions.length; i++) {
+    if (userSubmissions[i] === correctAnswers[i]) {
+      score++;
+    }
+  }
+
+  let triviaDocument = await getTrivia(trivia);
+
+  const submission = await getSubmission(body.user_id, trivia);
+
+  if (submission) {
+    alreadyPlayed = true;
+  }
+
+  let questionBlocks = [
+    {
+      'type': 'section',
+      'text': {
+        'type': 'mrkdwn',
+        'text': `Topic: *${trivia.topic.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')}*\n`,
+      },
+    },
+  ];
+  triviaDocument.questions.forEach((item, index) => {
+    questionBlocks.push(
+        {
+          'type': 'section',
+          'text': {
+            'type': 'mrkdwn',
+            'text': `*Question ${index + 1}: ${item.question}*`,
+          },
+        },
+    );
+
+    const correctOption = item.options.filter((option) => {
+      return option[0] === item.correctAnswer;
+    })[0].slice(3);
+
+    const userSubmission = item.options.filter((option) => {
+      return option[0] === userSubmissions[index];
+    })[0].slice(3);
+
+    let text = 'Your Answer: ';
+
+    if (userSubmissions[index] === correctAnswers[index]) {
+      text += `*${correctOption}* :white_check_mark:`;
+    } else {
+      text += `*${userSubmission}* :x: \n\n Correct Answer: *${correctOption}*`
+    }
+
+    questionBlocks.push(
+        {
+          'type': 'section',
+          'text': {
+            'type': 'mrkdwn',
+            'text': text,
+          },
+        },
+    );
+  });
+
+  questionBlocks.push({
+    'type': 'section',
+    'text': {
+      'type': 'mrkdwn',
+      'text': `
+          Your Score is: *${score}/5!*        
+          `,
+    },
+  });
+
+  if (alreadyPlayed) {
+    questionBlocks.push({
+      'type': 'rich_text',
+      'elements': [
+        {
+          'type': 'rich_text_section',
+          'elements': [
+            {
+              'type': 'text',
+              'text': 'Note: This submission will not be counted since you\'ve already played.',
+              'style': {
+                'italic': true,
+              },
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  const date = new Date(triviaDocument.date.seconds * 1000); // Multiply by 1000 to convert seconds to milliseconds
+  const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+  const formattedDate = date.toLocaleDateString('en-US', options);
+  const finalDate = formattedDate.split(',').join();
+
+  if (!alreadyPlayed) {
+    await store({
+      user_id: body.user.id,
+      user_score: score,
+      topic: triviaDocument.topic,
+      date: finalDate,
+      time: Date.now()
+    });
+  }
+
+  await client.chat.postMessage({
+    text: 'Thanks for Playing! :tada:',
+    channel: body.user.id,
+    blocks: questionBlocks,
+  });
+});
+

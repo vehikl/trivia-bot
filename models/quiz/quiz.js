@@ -1,5 +1,11 @@
 import {collection, doc, getDoc, getDocs, query, setDoc, where} from 'firebase/firestore/lite';
 import firebaseDatabase from '../../services/firebase/databaseConnection.js';
+import { 
+  fromFirestoreTimestamp, 
+  getNextThursday, 
+  getStartOfDay, 
+  getEndOfDay, 
+} from '../../services/utils/datetime.js';
 
 export async function getAll() {
   const quizzesCol = collection(firebaseDatabase, 'quizzes');
@@ -17,8 +23,11 @@ export async function getAllTopics() {
 
 export async function getTrivia(quiz) {
   let quizDoc = {};
+  // Handle potential Firestore timestamp
+  const queryDate = quiz.date?.seconds ? fromFirestoreTimestamp(quiz.date) : quiz.date;
+  
   const q = query(collection(firebaseDatabase, "quizzes"),
-      where("date", "==", quiz.date));
+      where("date", "==", queryDate));
   const getDocQuery = await getDocs(q);
   getDocQuery.forEach((doc) => {
     if (doc) {
@@ -30,8 +39,8 @@ export async function getTrivia(quiz) {
 
 export async function getNextTrivia() {
   const nextThursday = getNextThursday();
-  const startOfDay = new Date(nextThursday.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(nextThursday.setHours(23, 59, 59, 999));
+  const startOfDay = getStartOfDay(nextThursday);
+  const endOfDay = getEndOfDay(nextThursday);
   let nextTrivia;
 
   const triviaRef = collection(firebaseDatabase, 'quizzes');
@@ -47,9 +56,9 @@ export async function getNextTrivia() {
   return nextTrivia;
 }
 
-export async function getPreviousTrivia() {
+export async function getLastWeeksTrivia() {
   const nextThursday = getNextThursday();
-  const startOfDay = new Date(nextThursday.setHours(0, 0, 0, 0));
+  const startOfDay = getStartOfDay(nextThursday);
   let previousTrivia;
 
   const triviaRef = collection(firebaseDatabase, 'quizzes');
@@ -68,21 +77,12 @@ export async function getPreviousTrivia() {
 
 export async function store(quiz) {
   try {
-    await setDoc(doc(firebaseDatabase, 'quizzes', quiz.date.toDateString()), quiz);
+    // Create a consistent ID for the quiz document based on its date
+    const documentId = quiz.date instanceof Date ? quiz.date.toDateString() : quiz.date.toString();
+    await setDoc(doc(firebaseDatabase, 'quizzes', documentId), quiz);
     return true;
   } catch (e) {
     console.error(e);
     return false;
   }
-}
-
-function getNextThursday() {
-  const today = new Date();
-  const dayOfWeek = today.getDay(); // Sunday = 0, Monday = 1, ..., Thursday = 4
-  const daysUntilThursday = (4 - dayOfWeek + 7) % 7; // Calculate days until next Thursday
-  const nextThursday = new Date(today);
-
-  nextThursday.setDate(today.getDate() + daysUntilThursday);
-
-  return nextThursday;
 }

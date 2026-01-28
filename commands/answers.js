@@ -1,10 +1,10 @@
-import {getPreviousTrivia} from "../models/quiz/quiz.js";
+import {getLastWeeksTrivia} from "../models/quiz/quiz.js";
 
 export function answersCommand(app) {
     app.command('/answers', async ({ack, say}) => {
         await ack();
 
-        const trivia = await getPreviousTrivia();
+        const trivia = await getLastWeeksTrivia();
         const quizTitle = trivia.topic;
 
         let questionBlocks = [];
