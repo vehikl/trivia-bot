@@ -28,10 +28,10 @@ export function generateCommand(app) {
     await ack();
 
     if (!body.text) {
-      await app.client.chat.postMessage({
+      await app.client.chat.postEphemeral({
         channel: body.channel_id,
         user: body.user_id,
-        text: ':bread: Don\'t be an idiot sandwich, please pick a topic to generate questions :bread:',
+        text: ':bread: Please pick a topic to generate questions. :bread:',
       });
 
       return;
@@ -124,16 +124,10 @@ const executeCommand = async (app, body, say) => {
   app.action('submit', async ({ack}) => {
     await ack();
 
-    if (isValidDateMessage) {
-      await app.client.chat.delete({
-        channel: body.channel_id,
-        ts: isValidDateMessage.ts,
-      });
-    }
-
     if (!date) {
-      isValidDateMessage = await app.client.chat.postMessage({
+      isValidDateMessage = await app.client.chat.postEphemeral({
         channel: body.channel_id,
+        user: body.user?.id ?? body.user_id,
         text: 'Please select a date first!',
       });
       return;
@@ -144,8 +138,9 @@ const executeCommand = async (app, body, say) => {
     const selectedStart = getStartOfDay(selectedDate);
 
     if (selectedStart < todayStart) {
-      isValidDateMessage = await app.client.chat.postMessage({
+      isValidDateMessage = await app.client.chat.postEphemeral({
         channel: body.channel_id,
+        user: body.user?.id ?? body.user_id,
         text: 'Please select a valid date!',
       });
       return;
@@ -170,9 +165,9 @@ const executeCommand = async (app, body, say) => {
       //   });
       // }
 
-      await app.client.chat.postMessage({
-        channel: messageResponse.channel,
-        ts: messageResponse.ts,
+      await app.client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user?.id ?? body.user_id,
         text: `Your Questions for ${topic} have been submitted! :tada:`,
       });
     } catch (e) {

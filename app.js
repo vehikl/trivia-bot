@@ -46,16 +46,6 @@ const previousTrivia = await getLastWeeksTrivia();
       );
     });
 
-    app.action('play', async ({ack, body, client, logger}) => {
-      // Always acknowledge the action first
-      await ack();
-      try {
-        await playTime(ack, body, client, logger);
-      } catch (error) {
-        logger.error('Error opening trivia modal:', error);
-      }
-    });
-
     try {
       await app.client.chat.postMessage({
         channel: 'C04D6JZ0L67',  // to be replaced with Trivia Channel ID
@@ -172,38 +162,40 @@ const previousTrivia = await getLastWeeksTrivia();
       // Always acknowledge the action first
       await ack();
 
-      await playTime(ack, body, client, logger);
+      await playTime(body, client, logger);
     } catch (error) {
       console.error('Error handling play_trivia action:', error);
+    }
+  });
+
+  app.action('play', async ({ack, body, client, logger}) => {
+    try {
+      await ack();
+      await playTime(body, client, logger);
+    } catch (error) {
+      logger.error('Error opening trivia modal:', error);
     }
   });
 
   console.log('⚡️ Bolt app is running!');
 })();
 
-let correctAnswers = [];
-let trivia;
-let alreadyPlayed = false;
+async function playTime(body, client, logger) {
+  const userId = body.user?.id ?? body.user_id;
 
-async function playTime(ack, body, client, logger) {
-  await ack();
+  const trivia = !body.text
+    ? await getLastWeeksTrivia()
+    : await getTrivia(body.text);
 
-  if (!body.text) {
-    trivia = await getLastWeeksTrivia();
-  } else {
-    trivia = await getTrivia(body.text);
-  }
+  let alreadyPlayed = false;
 
-  alreadyPlayed = false;
-
-  const submission = await getSubmission(body.user_id ?? body.user.id, trivia);
+  const submission = await getSubmission(userId, trivia);
 
   if (submission) {
     alreadyPlayed = true;
   }
 
   const questionsBlock = [];
-  correctAnswers = [];
 
   if (alreadyPlayed) {
     questionsBlock.push({
@@ -226,7 +218,6 @@ async function playTime(ack, body, client, logger) {
   }
 
   trivia.questions.forEach((item, index) => {
-    correctAnswers.push(item.correctAnswer);
     questionsBlock.push({
       'type': 'input',
       'block_id': `question-${index}`,
@@ -250,6 +241,9 @@ async function playTime(ack, body, client, logger) {
       view: {
         type: 'modal',
         callback_id: 'trivia_view',
+        private_metadata: JSON.stringify({
+          quizDate: trivia.date,
+        }),
         title: {
           type: 'plain_text',
           text: 'Trivia Time',
@@ -282,11 +276,9 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   let userSubmissions = [];
   let score = 0;
   let aiVerdicts = [];
-  if (!body.text) {
-    trivia = await getLastWeeksTrivia();
-  } else {
-    trivia = await getTrivia(body.text);
-  }
+
+  const userId = body.user.id;
+  const metadata = body.view.private_metadata ? JSON.parse(body.view.private_metadata) : {};
 
   // Extract free-text answers from modal state
   for (const property in body.view.state.values) {
@@ -295,11 +287,12 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     index++;
   }
 
+  const triviaDocument = await getTrivia({ date: metadata.quizDate });
   const normalize = (s) => (s || '').trim().toLowerCase();
 
   for (let i = 0; i < userSubmissions.length; i++) {
     const userAnswer = userSubmissions[i];
-    const correctAnswer = correctAnswers[i];
+    const correctAnswer = triviaDocument.questions[i].correctAnswer;
 
     if (!userAnswer) {
       aiVerdicts.push('no-answer');
@@ -330,7 +323,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
           {
             role: 'user',
             content:
-              `Question: ${trivia.questions[i].question}\n` +
+              `Question: ${triviaDocument.questions[i].question}\n` +
               `Correct answer: ${correctAnswer}\n` +
               `User answer: ${userAnswer}`,
           },
@@ -355,20 +348,15 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     }
   }
 
-  let triviaDocument = await getTrivia(trivia);
-
-  const submission = await getSubmission(body.user_id, trivia);
-
-  if (submission) {
-    alreadyPlayed = true;
-  }
+  const submission = await getSubmission(userId, triviaDocument);
+  const alreadyPlayed = Boolean(submission);
 
   let questionBlocks = [
     {
       'type': 'section',
       'text': {
         'type': 'mrkdwn',
-        'text': `Topic: *${trivia.topic.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')}*\n`,
+        'text': `Topic: *${triviaDocument.topic.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')}*\n`,
       },
     },
   ];
@@ -384,7 +372,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     );
 
     const userAnswer = (userSubmissions[index] || '').trim() || 'No answer provided';
-    const correctAnswer = correctAnswers[index];
+    const correctAnswer = triviaDocument.questions[index].correctAnswer;
 
     let text = 'Your Answer: ';
     const verdict = aiVerdicts[index];
