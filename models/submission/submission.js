@@ -26,22 +26,22 @@ export async function getSubmission(user_id, quiz) {
 
 export async function store(submission) {
   try {
-    // Ensure we have a properly formatted date-based ID
-    let submissionId;
-    
-    if (submission.date instanceof Date) {
-      submissionId = createDateId(submission.user_id, submission.date);
+    // Normalize date and create a consistent ID based on quiz date
+    let dateForId;
+
+    if (submission.date?.seconds) {
+      dateForId = fromFirestoreTimestamp(submission.date);
+    } else if (submission.date instanceof Date) {
+      dateForId = submission.date;
     } else if (typeof submission.date === 'string') {
-      // If date is already a formatted string, use it directly
-      submissionId = `${submission.user_id}-${submission.date}`;
-    } else if (submission.date?.seconds) {
-      // If it's a Firestore timestamp
-      const jsDate = fromFirestoreTimestamp(submission.date);
-      submissionId = createDateId(submission.user_id, jsDate);
-    } else {
-      // Fallback case
-      submissionId = `${submission.user_id}-${submission.date}`;
+      // Fallback: attempt to parse string to Date
+      const parsed = new Date(submission.date);
+      dateForId = parsed instanceof Date && !isNaN(parsed) ? parsed : null;
     }
+
+    const submissionId = dateForId instanceof Date
+      ? createDateId(submission.user_id, dateForId)
+      : `${submission.user_id}-${submission.date}`;
     
     await setDoc(doc(firebaseDatabase, 'submissions', submissionId), submission);
     return true;

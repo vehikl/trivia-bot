@@ -1,6 +1,7 @@
 import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
+import OpenAI from 'openai';
 import {getLastWeeksTrivia, getTrivia} from './models/quiz/quiz.js';
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
@@ -18,6 +19,8 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN,
   port: process.env.PORT || 3000,
 });
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 allCommand(app);
 answersCommand(app);
@@ -200,6 +203,7 @@ async function playTime(ack, body, client, logger) {
   }
 
   const questionsBlock = [];
+  correctAnswers = [];
 
   if (alreadyPlayed) {
     questionsBlock.push({
@@ -223,54 +227,20 @@ async function playTime(ack, body, client, logger) {
 
   trivia.questions.forEach((item, index) => {
     correctAnswers.push(item.correctAnswer);
-    questionsBlock.push(
-        {
-          'label': {
-            'type': 'plain_text',
-            'text': `Question ${index + 1}: ${item.question}`,
-            'emoji': true,
-          },
-          'type': 'input',
-          'element': {
-            'type': 'radio_buttons',
-            'options': [
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[0]}`,
-                  'emoji': true,
-                },
-                'value': 'a',
-              },
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[1]}`,
-                  'emoji': true,
-                },
-                'value': 'b',
-              },
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[2]}`,
-                  'emoji': true,
-                },
-                'value': 'c',
-              },
-              {
-                'text': {
-                  'type': 'plain_text',
-                  'text': `${item.options[3]}`,
-                  'emoji': true,
-                },
-                'value': 'd',
-              },
-            ],
-            'action_id': `radio-buttons-${index}`,
-          },
-        },
-    );
+    questionsBlock.push({
+      'type': 'input',
+      'block_id': `question-${index}`,
+      'label': {
+        'type': 'plain_text',
+        'text': `Question ${index + 1}: ${item.question}`,
+        'emoji': true,
+      },
+      'element': {
+        'type': 'plain_text_input',
+        'action_id': `answer-${index}`,
+        'multiline': false,
+      },
+    });
   });
 
   try {
@@ -311,20 +281,77 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   let index = 0;
   let userSubmissions = [];
   let score = 0;
+  let aiVerdicts = [];
   if (!body.text) {
     trivia = await getLastWeeksTrivia();
   } else {
     trivia = await getTrivia(body.text);
   }
 
+  // Extract free-text answers from modal state
   for (const property in body.view.state.values) {
-    userSubmissions.push(body.view.state.values[property][`radio-buttons-${index}`]['selected_option']['value']);
+    const action = body.view.state.values[property][`answer-${index}`];
+    userSubmissions.push(action ? (action.value || '').trim() : '');
     index++;
   }
 
+  const normalize = (s) => (s || '').trim().toLowerCase();
+
   for (let i = 0; i < userSubmissions.length; i++) {
-    if (userSubmissions[i] === correctAnswers[i]) {
+    const userAnswer = userSubmissions[i];
+    const correctAnswer = correctAnswers[i];
+
+    if (!userAnswer) {
+      aiVerdicts.push('no-answer');
+      continue;
+    }
+
+    // First try simple normalized string match
+    if (normalize(userAnswer) === normalize(correctAnswer)) {
       score++;
+      aiVerdicts.push('exact');
+      continue;
+    }
+
+    // Use AI to judge if the answer is correct (allowing minor spelling errors, but not wrong facts)
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4.1-nano',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a strict grader for short-answer trivia. ' +
+              'Given a question, the canonical correct answer, and a user answer, decide if the user answer is truly correct.\n' +
+              '- Treat minor spelling errors or very small wording differences as CORRECT if they clearly refer to the same factual answer.\n' +
+              '- If the user names a different place/person/thing (e.g. "Brazil" as the capital of Brazil) it must be marked INCORRECT.\n' +
+              '- Respond with exactly one word: "correct" or "incorrect". No explanations.',
+          },
+          {
+            role: 'user',
+            content:
+              `Question: ${trivia.questions[i].question}\n` +
+              `Correct answer: ${correctAnswer}\n` +
+              `User answer: ${userAnswer}`,
+          },
+        ],
+      });
+
+      const verdictRaw = completion.choices[0].message.content.trim().toLowerCase();
+      const verdictWord = verdictRaw.split(/\s+/)[0]; // use the first token only
+      let verdict = 'incorrect';
+      if (verdictWord === 'correct') {
+        verdict = 'correct';
+      }
+
+      aiVerdicts.push(verdict);
+
+      if (verdict === 'correct') {
+        score++;
+      }
+    } catch (e) {
+      console.error('Error grading answer with AI', e);
+      aiVerdicts.push('error');
     }
   }
 
@@ -356,20 +383,16 @@ app.view('trivia_view', async ({ ack, body, client }) => {
         },
     );
 
-    const correctOption = item.options.filter((option) => {
-      return option[0] === item.correctAnswer;
-    })[0].slice(3);
-
-    const userSubmission = item.options.filter((option) => {
-      return option[0] === userSubmissions[index];
-    })[0].slice(3);
+    const userAnswer = (userSubmissions[index] || '').trim() || 'No answer provided';
+    const correctAnswer = correctAnswers[index];
 
     let text = 'Your Answer: ';
+    const verdict = aiVerdicts[index];
 
-    if (userSubmissions[index] === correctAnswers[index]) {
-      text += `*${correctOption}* :white_check_mark:`;
+    if (verdict === 'exact' || verdict === 'correct') {
+      text += `*${userAnswer}* :white_check_mark:`;
     } else {
-      text += `*${userSubmission}* :x: \n\n Correct Answer: *${correctOption}*`
+      text += `*${userAnswer}* :x: \n\n Correct Answer: *${correctAnswer}*`;
     }
 
     questionBlocks.push(
@@ -413,17 +436,14 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     });
   }
 
-  const date = new Date(triviaDocument.date.seconds * 1000); // Multiply by 1000 to convert seconds to milliseconds
-  const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
-  const formattedDate = date.toLocaleDateString('en-US', options);
-  const finalDate = formattedDate.split(',').join();
+  const quizDate = new Date(triviaDocument.date.seconds * 1000); // Quiz date as Date object
 
   if (!alreadyPlayed) {
     await store({
       user_id: body.user.id,
       user_score: score,
       topic: triviaDocument.topic,
-      date: finalDate,
+      date: quizDate,
       time: Date.now()
     });
   }

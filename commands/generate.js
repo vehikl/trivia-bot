@@ -2,17 +2,19 @@ import OpenAI from 'openai';
 import {store} from '../models/quiz/quiz.js';
 import {zodResponseFormat} from 'openai/helpers/zod';
 import {z} from 'zod';
+import {getStartOfDay} from '../services/utils/datetime.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
 let topic = '';
+let questions = [];
+let questionBlocks = [];
 let isValidDateMessage;
 let messageResponses = [];
 
 const question = z.object({
   question: z.string(),
   correctAnswer: z.string(),
-  options: z.array(z.string()),
 });
 
 const generateQuestions = z.object({
@@ -34,6 +36,8 @@ export function generateCommand(app) {
 
       return;
     }
+
+    messageResponses = [];
 
     generateMessageResponse = await app.client.chat.postMessage({
       channel: body.channel_id,
@@ -58,18 +62,18 @@ const executeCommand = async (app, body, say) => {
   const completion = await openai.chat.completions.create({
     messages: [
       {
-        role: 'system', content: 'You will be provided a topic. You will need to create questions from this topic. Make sure that the message given to the User is string' +
-            ' format so I can JSON parse it. Please only provide 5 questions. Participants will be Adults and the questions should be appropriate for them. \n' +
-            '\n' +
-            'Make sure each string has a property of questions with each object having a question, answers as an array with multiple choice of a,b,c, and d in their own objects' +
-            ' the right answer. An example of the string format must be: [{question: "Which answer is correct?", answers: ["a) Example answer 1","b) Example answer 2","c) Example' +
-            ' answer 3" "d) Example answer 4", correctAnswer: b]},' +
-            ' ...] This is the' +
-            ' topic:' +
-            ' ' + topic,
+        role: 'system',
+        content:
+          'You will be provided a trivia topic. Create exactly 5 short-answer questions for adults.\n' +
+          '- For each question, return an object with:\n' +
+          '  - question: the question text\n' +
+          '  - correctAnswer: a concise canonical short answer string\n' +
+          '- Do NOT include multiple choice options.\n' +
+          '- The response MUST be a JSON string matching this shape: { "questions": [ { "question": "...", "correctAnswer": "..." }, ... ] }.\n' +
+          'Topic: ' + topic,
       },
     ],
-    model: 'gpt-4o',
+    model: 'gpt-4.1-nano',
     response_format: zodResponseFormat(generateQuestions, 'generate_questions'),
   });
 
@@ -79,37 +83,25 @@ const executeCommand = async (app, body, say) => {
 
   let date = null;
 
-  let questionBlocks = [];
+  questionBlocks = [];
 
   response.questions.forEach((item, index) => {
-    questionBlocks.push(
-        {
-          'type': 'section',
-          'text': {
-            'type': 'mrkdwn',
-            'text': `*Question ${index + 1}: ${item.question}*`,
-          },
-        },
-    );
-
-    item.options.forEach((option) => {
-      questionBlocks.push(
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': item.correctAnswer === option[0] ? `*${option}* :white_check_mark:` : `${option}`,
-            },
-          },
-      );
+    questionBlocks.push({
+      'type': 'section',
+      'text': {
+        'type': 'mrkdwn',
+        'text': `*Question ${index + 1}: ${item.question}*`,
+      },
     });
   });
 
   app.action('datepicker', async ({ack, body}) => {
     await ack();
 
-    date = new Date(body['state']['values']['section']['datepicker']['selected_date']);
-    date.setHours(0, 0, 0, 0);
+    const selected = body.state.values.section.datepicker.selected_date;
+    const [year, month, day] = selected.split('-').map(Number);
+    date = new Date(year, month - 1, day);
+
   });
 
   app.action('regenerate', async ({ack}) => {
@@ -139,11 +131,19 @@ const executeCommand = async (app, body, say) => {
       });
     }
 
-    let validDate = Date.now();
+    if (!date) {
+      isValidDateMessage = await app.client.chat.postMessage({
+        channel: body.channel_id,
+        text: 'Please select a date first!',
+      });
+      return;
+    }
 
-    const selectedDate = new Date(date);
+    const todayStart = getStartOfDay(new Date());
+    const selectedDate = date instanceof Date ? date : new Date(date);
+    const selectedStart = getStartOfDay(selectedDate);
 
-    if (selectedDate < validDate) {
+    if (selectedStart < todayStart) {
       isValidDateMessage = await app.client.chat.postMessage({
         channel: body.channel_id,
         text: 'Please select a valid date!',
@@ -152,9 +152,8 @@ const executeCommand = async (app, body, say) => {
     }
 
     try {
-      const questions = response.questions.map(item => ({
+      questions = response.questions.map(item => ({
         question: item.question,
-        options: item.options,
         correctAnswer: item.correctAnswer,
       }));
 
@@ -163,13 +162,13 @@ const executeCommand = async (app, body, say) => {
         questions,
         date,
       });
-
-      for (const message of messageResponses) {
-        await app.client.chat.delete({
-          channel: body.channel_id,
-          ts: message.ts,
-        });
-      }
+      //
+      // for (const message of messageResponses) {
+      //   await app.client.chat.delete({
+      //     channel: body.channel_id,
+      //     ts: message.ts,
+      //   });
+      // }
 
       await app.client.chat.postMessage({
         channel: messageResponse.channel,
