@@ -33,18 +33,25 @@ const previousTrivia = await getLastWeeksTrivia();
   cron.schedule('* */1 * * *', async () => {
     const quizTitle = previousTrivia.topic;
 
-    let questionBlocks = [];
+    const title = quizTitle.split(' ')
+        .map(word => word[0].toUpperCase() + word.slice(1))
+        .join(' ')
+
+    let questionText = `${title}\n`;
+
     previousTrivia.questions.forEach((item, index) => {
-      questionBlocks.push(
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': `*Question ${index + 1}: ${item.question}*`,
-            },
-          },
-      );
+      questionText += `\n${index + 1}. ${item.question}\n`;
     });
+
+    let questionBlocks = [
+      {
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': `\`\`\`\n${questionText}\`\`\``, // Wrap all questions in a single code block
+        },
+      },
+    ];
 
     try {
       await app.client.chat.postMessage({
@@ -55,7 +62,7 @@ const previousTrivia = await getLastWeeksTrivia();
             'type': 'section',
             'text': {
               'type': 'mrkdwn',
-              'text': `*Your ${quizTitle} Trivia *`,
+              'text': `Your \`${quizTitle.toUpperCase()}\` Trivia`,
             },
           },
             ...questionBlocks,
@@ -69,6 +76,7 @@ const previousTrivia = await getLastWeeksTrivia();
                   'text': 'Play',
                   'emoji': true,
                 },
+                "style": "primary",
                 'value': 'play_button',
                 'action_id': 'play',
               },
@@ -197,6 +205,23 @@ async function playTime(body, client, logger) {
 
   const questionsBlock = [];
 
+  trivia.questions.forEach((item, index) => {
+    questionsBlock.push({
+      'type': 'input',
+      'block_id': `question-${index}`,
+      'label': {
+        'type': 'plain_text',
+        'text': `Question ${index + 1}: ${item.question}`,
+        'emoji': true,
+      },
+      'element': {
+        'type': 'plain_text_input',
+        'action_id': `answer-${index}`,
+        'multiline': false,
+      },
+    });
+  });
+
   if (alreadyPlayed) {
     questionsBlock.push({
       'type': 'rich_text',
@@ -217,23 +242,6 @@ async function playTime(body, client, logger) {
     });
   }
 
-  trivia.questions.forEach((item, index) => {
-    questionsBlock.push({
-      'type': 'input',
-      'block_id': `question-${index}`,
-      'label': {
-        'type': 'plain_text',
-        'text': `Question ${index + 1}: ${item.question}`,
-        'emoji': true,
-      },
-      'element': {
-        'type': 'plain_text_input',
-        'action_id': `answer-${index}`,
-        'multiline': false,
-      },
-    });
-  });
-
   try {
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -246,17 +254,9 @@ async function playTime(body, client, logger) {
         }),
         title: {
           type: 'plain_text',
-          text: 'Trivia Time',
+          text: `${trivia.topic.toUpperCase()}`,
         },
         'blocks': [
-          {
-            'type': 'header',
-            'text': {
-              'type': 'plain_text',
-              'text': `${trivia.topic.toUpperCase()} Trivia :brain:`,
-              'emoji': true,
-            },
-          },
           ...questionsBlock,
         ],
         submit: {
@@ -351,78 +351,41 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   const submission = await getSubmission(userId, triviaDocument);
   const alreadyPlayed = Boolean(submission);
 
+  let questionText = `Topic: ${triviaDocument.topic
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')}\n\n`;
+
+  triviaDocument.questions.forEach((item, index) => {
+    const userAnswer = (userSubmissions[index] || '').trim() || 'No answer provided';
+    const correctAnswer = triviaDocument.questions[index].correctAnswer;
+    const verdict = aiVerdicts[index];
+
+    let answerFeedback = '';
+    if (verdict === 'exact' || verdict === 'correct') {
+      answerFeedback = `Your Answer: ${userAnswer} ✅\n`;
+    } else {
+      answerFeedback = `Your Answer: ${userAnswer} ❌\nCorrect Answer: ${correctAnswer}\n`;
+    }
+
+    questionText += `*Question ${index + 1}: ${item.question}*\n${answerFeedback}\n`;
+  });
+
+  questionText += `Your Score is: ${score}/5!\n`;
+
+  if (alreadyPlayed) {
+    questionText += `\nNote: This submission will not be counted since you've already played.\n`;
+  }
+
   let questionBlocks = [
     {
       'type': 'section',
       'text': {
         'type': 'mrkdwn',
-        'text': `Topic: *${triviaDocument.topic.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')}*\n`,
+        'text': `\`\`\`${questionText}\`\`\``, // Wrap all text in one code block
       },
     },
   ];
-  triviaDocument.questions.forEach((item, index) => {
-    questionBlocks.push(
-        {
-          'type': 'section',
-          'text': {
-            'type': 'mrkdwn',
-            'text': `*Question ${index + 1}: ${item.question}*`,
-          },
-        },
-    );
-
-    const userAnswer = (userSubmissions[index] || '').trim() || 'No answer provided';
-    const correctAnswer = triviaDocument.questions[index].correctAnswer;
-
-    let text = 'Your Answer: ';
-    const verdict = aiVerdicts[index];
-
-    if (verdict === 'exact' || verdict === 'correct') {
-      text += `*${userAnswer}* :white_check_mark:`;
-    } else {
-      text += `*${userAnswer}* :x: \n\n Correct Answer: *${correctAnswer}*`;
-    }
-
-    questionBlocks.push(
-        {
-          'type': 'section',
-          'text': {
-            'type': 'mrkdwn',
-            'text': text,
-          },
-        },
-    );
-  });
-
-  questionBlocks.push({
-    'type': 'section',
-    'text': {
-      'type': 'mrkdwn',
-      'text': `
-          Your Score is: *${score}/5!*        
-          `,
-    },
-  });
-
-  if (alreadyPlayed) {
-    questionBlocks.push({
-      'type': 'rich_text',
-      'elements': [
-        {
-          'type': 'rich_text_section',
-          'elements': [
-            {
-              'type': 'text',
-              'text': 'Note: This submission will not be counted since you\'ve already played.',
-              'style': {
-                'italic': true,
-              },
-            },
-          ],
-        },
-      ],
-    });
-  }
 
   const quizDate = new Date(triviaDocument.date.seconds * 1000); // Quiz date as Date object
 
@@ -442,4 +405,3 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     blocks: questionBlocks,
   });
 });
-
