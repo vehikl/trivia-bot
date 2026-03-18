@@ -1,4 +1,4 @@
-import {doc, getDoc, setDoc} from 'firebase/firestore/lite';
+import {doc, getDoc, setDoc} from 'firebase/firestore';
 import firebaseDatabase from '../../services/firebase/databaseConnection.js';
 import { 
   fromFirestoreTimestamp, 
