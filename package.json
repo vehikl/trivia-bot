@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/vehikl/trivia-bot#readme",
   "dependencies": {
-    "@slack/bolt": "^3.19.0",
+    "@slack/bolt": "^4.6.0",
     "dotenv": "^16.0.3",
     "firebase": "^10.12.3",
     "node-cron": "^3.0.3",
