@@ -206,12 +206,13 @@ async function playTime(body, client, logger) {
   const questionsBlock = [];
 
   trivia.questions.forEach((item, index) => {
+    const label = item.isBonus ? `Bonus Question: ${item.question}` : `Question ${index + 1}: ${item.question}`;
     questionsBlock.push({
       'type': 'input',
       'block_id': `question-${index}`,
       'label': {
         'type': 'plain_text',
-        'text': `Question ${index + 1}: ${item.question}`,
+        'text': label,
         'emoji': true,
       },
       'element': {
@@ -251,6 +252,7 @@ async function playTime(body, client, logger) {
         callback_id: 'trivia_view',
         private_metadata: JSON.stringify({
           quizDate: trivia.date,
+          channelId: body.channel?.id || body.channel_id || 'C04D6JZ0L67',
         }),
         title: {
           type: 'plain_text',
@@ -274,7 +276,8 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   await ack();
   let index = 0;
   let userSubmissions = [];
-  let score = 0;
+  let regularScore = 0;
+  let bonusScore = 0;
   let aiVerdicts = [];
 
   const userId = body.user.id;
@@ -293,6 +296,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   for (let i = 0; i < userSubmissions.length; i++) {
     const userAnswer = userSubmissions[i];
     const correctAnswer = triviaDocument.questions[i].correctAnswer;
+    const isBonus = triviaDocument.questions[i].isBonus === true;
 
     if (!userAnswer) {
       aiVerdicts.push('no-answer');
@@ -301,7 +305,33 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
     // First try simple normalized string match
     if (normalize(userAnswer) === normalize(correctAnswer)) {
-      score++;
+      if (isBonus) {
+        bonusScore++;
+      } else {
+        regularScore++;
+      }
+      aiVerdicts.push('exact');
+      continue;
+    }
+
+    // Check if correct answer contains multiple options separated by "or"
+    const correctOptions = correctAnswer.split(/\s+or\s+/i).map(option => option.trim());
+    const userAnswerNormalized = normalize(userAnswer);
+
+    let isCorrectOption = false;
+    for (const option of correctOptions) {
+      if (userAnswerNormalized === normalize(option)) {
+        isCorrectOption = true;
+        break;
+      }
+    }
+
+    if (isCorrectOption) {
+      if (isBonus) {
+        bonusScore++;
+      } else {
+        regularScore++;
+      }
       aiVerdicts.push('exact');
       continue;
     }
@@ -316,7 +346,9 @@ app.view('trivia_view', async ({ ack, body, client }) => {
             content:
               'You are a strict grader for short-answer trivia. ' +
               'Given a question, the canonical correct answer, and a user answer, decide if the user answer is truly correct.\n' +
+              '- If the correct answer contains "or", any of the options listed is acceptable.\n' +
               '- Treat minor spelling errors or very small wording differences as CORRECT if they clearly refer to the same factual answer.\n' +
+              '- Case differences (Medal Collection vs medal collection) should be treated as CORRECT.\n' +
               '- If the user names a different place/person/thing (e.g. "Brazil" as the capital of Brazil) it must be marked INCORRECT.\n' +
               '- Respond with exactly one word: "correct" or "incorrect". No explanations.',
           },
@@ -340,7 +372,11 @@ app.view('trivia_view', async ({ ack, body, client }) => {
       aiVerdicts.push(verdict);
 
       if (verdict === 'correct') {
-        score++;
+        if (isBonus) {
+          bonusScore++;
+        } else {
+          regularScore++;
+        }
       }
     } catch (e) {
       console.error('Error grading answer with AI', e);
@@ -356,10 +392,14 @@ app.view('trivia_view', async ({ ack, body, client }) => {
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ')}\n\n`;
 
+  const regularCount = triviaDocument.questions.filter(q => q.isBonus !== true).length;
+  const bonusCount = triviaDocument.questions.filter(q => q.isBonus === true).length;
+
   triviaDocument.questions.forEach((item, index) => {
     const userAnswer = (userSubmissions[index] || '').trim() || 'No answer provided';
     const correctAnswer = triviaDocument.questions[index].correctAnswer;
     const verdict = aiVerdicts[index];
+    const label = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
 
     let answerFeedback = '';
     if (verdict === 'exact' || verdict === 'correct') {
@@ -368,10 +408,14 @@ app.view('trivia_view', async ({ ack, body, client }) => {
       answerFeedback = `Your Answer: ${userAnswer} ❌\nCorrect Answer: ${correctAnswer}\n`;
     }
 
-    questionText += `*Question ${index + 1}: ${item.question}*\n${answerFeedback}\n`;
+    questionText += `*${label}: ${item.question}*\n${answerFeedback}\n`;
   });
 
-  questionText += `Your Score is: ${score}/5!\n`;
+  if (bonusCount > 0) {
+    questionText += `Your Score is: ${regularScore}/${regularCount} (Bonus: ${bonusScore}/${bonusCount})\n`;
+  } else {
+    questionText += `Your Score is: ${regularScore}/${regularCount}\n`;
+  }
 
   if (alreadyPlayed) {
     questionText += `\nNote: This submission will not be counted since you've already played.\n`;
@@ -392,16 +436,18 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   if (!alreadyPlayed) {
     await store({
       user_id: body.user.id,
-      user_score: score,
+      user_score: regularScore,
+      bonus_score: bonusScore,
       topic: triviaDocument.topic,
       date: quizDate,
       time: Date.now()
     });
   }
 
-  await client.chat.postMessage({
+  await client.chat.postEphemeral({
     text: 'Thanks for Playing! :tada:',
-    channel: body.user.id,
+    channel: body.view.private_metadata ? JSON.parse(body.view.private_metadata).channelId || 'C04D6JZ0L67' : 'C04D6JZ0L67',
+    user: body.user.id,
     blocks: questionBlocks,
   });
 });

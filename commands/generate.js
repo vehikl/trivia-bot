@@ -15,10 +15,11 @@ let messageResponses = [];
 const question = z.object({
   question: z.string(),
   correctAnswer: z.string(),
+  isBonus: z.boolean(),
 });
 
 const generateQuestions = z.object({
-  questions: z.array(question),
+  questions: z.array(question).length(6),
 });
 
 let generateMessageResponse;
@@ -39,7 +40,7 @@ export function generateCommand(app) {
 
     messageResponses = [];
 
-    generateMessageResponse = await app.client.chat.postMessage({
+    generateMessageResponse = await app.client.chat.postEphemeral({
       channel: body.channel_id,
       user: body.user_id,
       text: 'Generating Questions... :brain:',
@@ -64,13 +65,18 @@ const executeCommand = async (app, body, say) => {
       {
         role: 'system',
         content:
-          'You will be provided a trivia topic. Create exactly 5 short-answer questions for adults.\n' +
-          '- For each question, return an object with:\n' +
-          '  - question: the question text\n' +
-          '  - correctAnswer: a concise canonical short answer string\n' +
-          '- Do NOT include multiple choice options.\n' +
-          '- The response MUST be a JSON string matching this shape: { "questions": [ { "question": "...", "correctAnswer": "..." }, ... ] }.\n' +
-          'Topic: ' + topic,
+          'You are writing a weekly office trivia quiz.\n' +
+          'Requirements:\n' +
+          '- Produce exactly 6 questions total: 5 regular questions and 1 bonus question.\n' +
+          '- All questions must match the supplied theme/topic.\n' +
+          '- Each question should include 1–3 sentences of helpful clue/context BEFORE the actual ask, similar in style to the Pixar examples.\n' +
+          '- Short-answer format (no multiple choice).\n' +
+          '- Provide a concise canonical answer for each question.\n' +
+          '- Mark the bonus question with isBonus=true; all other questions isBonus=false.\n' +
+          'Output format:\n' +
+          '- Respond with a JSON string matching: { "questions": [ { "question": string, "correctAnswer": string, "isBonus": boolean }, ... ] }\n' +
+          '- The array must contain exactly 6 objects.\n' +
+          'Theme/topic: ' + topic,
       },
     ],
     model: 'gpt-4.1-nano',
@@ -86,11 +92,12 @@ const executeCommand = async (app, body, say) => {
   questionBlocks = [];
 
   response.questions.forEach((item, index) => {
+    const label = item.isBonus ? `*Bonus Question: ${item.question}*` : `*Question ${index + 1}: ${item.question}*`;
     questionBlocks.push({
       'type': 'section',
       'text': {
         'type': 'mrkdwn',
-        'text': `*Question ${index + 1}: ${item.question}*`,
+        'text': label,
       },
     });
   });
@@ -150,6 +157,7 @@ const executeCommand = async (app, body, say) => {
       questions = response.questions.map(item => ({
         question: item.question,
         correctAnswer: item.correctAnswer,
+        isBonus: item.isBonus,
       }));
 
       await store({
@@ -157,13 +165,6 @@ const executeCommand = async (app, body, say) => {
         questions,
         date,
       });
-      //
-      // for (const message of messageResponses) {
-      //   await app.client.chat.delete({
-      //     channel: body.channel_id,
-      //     ts: message.ts,
-      //   });
-      // }
 
       await app.client.chat.postEphemeral({
         channel: body.channel_id,

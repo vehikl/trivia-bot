@@ -9,12 +9,13 @@ export function answersCommand(app) {
 
         let questionBlocks = [];
         trivia.questions.forEach((item, index) => {
+            const label = item.isBonus ? `Bonus Question: ${item.question}` : `Question ${index + 1}: ${item.question}`;
             questionBlocks.push(
                 {
                     'type': 'section',
                     'text': {
                         'type': 'mrkdwn',
-                        'text': `*Question ${index + 1}: ${item.question}*`,
+                        'text': `*${label}*`,
                     },
                 },
             );
