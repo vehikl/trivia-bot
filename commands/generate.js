@@ -245,33 +245,3 @@ const executeCommand = async (app, body, say) => {
 
   messageResponses.push(messageResponse);
 };
-
-const exampleGenerateResponse = {
-  questions: [
-      {
-        question: 'Which fruit is known as the \'King of Fruits\'?',
-        options: ['a) Apple', 'b) Mango', 'c) Banana', 'd) Pineapple'],
-        correctAnswer: 'b',
-      },
-      {
-        question: 'Which fruit has the highest vitamin C content per 100g?',
-        options: ['a) Orange', 'b) Kiwi', 'c) Strawberry', 'd) Guava'],
-        correctAnswer: 'd',
-      },
-      {
-        question: 'What is the main ingredient in traditional guacamole?',
-        options: ['a) Avocado', 'b) Tomato', 'c) Bell pepper', 'd) Olive'],
-        correctAnswer: 'a',
-      },
-      {
-        question: 'Which fruit is botanically classified as a berry?',
-        options: ['a) Raspberry', 'b) Strawberry', 'c) Blueberry', 'd) Banana'],
-        correctAnswer: 'd',
-      },
-      {
-        question: 'Which fruit is known for having a \'star-shaped\' cross section when cut?',
-        options: ['a) Papaya', 'b) Starfruit', 'c) Kiwi', 'd) Dragonfruit'],
-        correctAnswer: 'b',
-      }
-  ]
-};

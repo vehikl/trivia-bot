@@ -2,7 +2,7 @@ import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
 import OpenAI from 'openai';
-import {getLastWeeksTrivia, getTrivia} from './models/quiz/quiz.js';
+import {getLastWeeksTrivia, getTrivia, getNextTrivia} from './models/quiz/quiz.js';
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
@@ -26,21 +26,97 @@ allCommand(app);
 answersCommand(app);
 generateCommand(app);
 
-const previousTrivia = await getLastWeeksTrivia();
-
 (async () => {
   await app.start();
-  cron.schedule('* */1 * * *', async () => {
+  
+  // Schedule to run every 30 seconds (FOR TESTING ONLY)
+  cron.schedule('0 9 * * 4', async () => {
+    try {
+      console.log('Running test cron job...', new Date().toISOString());
+      
+      // First, post last week's trivia with answers
+      await postLastWeeksTriviaWithAnswers();
+      
+      // Then post this week's new trivia questions
+      await postCurrentWeeksTrivia();
+      
+    } catch (error) {
+      console.error('Error in cron job:', error);
+    }
+  });
+
+  // Function to post last week's trivia with answers
+  async function postLastWeeksTriviaWithAnswers() {
+    const previousTrivia = await getLastWeeksTrivia();
+    
+    // Check if previousTrivia exists and has the required properties
+    if (!previousTrivia || !previousTrivia.topic || !previousTrivia.questions) {
+      console.log('No previous trivia found or missing data');
+      return;
+    }
+    
     const quizTitle = previousTrivia.topic;
 
     const title = quizTitle.split(' ')
         .map(word => word[0].toUpperCase() + word.slice(1))
-        .join(' ')
+        .join(' ');
+
+    let triviaWithAnswersText = `${title} - ANSWERS\n\n`;
+
+    previousTrivia.questions.forEach((item, index) => {
+      const questionLabel = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
+      triviaWithAnswersText += `${questionLabel}: ${item.question}\n`;
+      triviaWithAnswersText += `Answer: ${item.correctAnswer}\n\n`;
+    });
+
+    let answersBlocks = [
+      {
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': `\`\`\`\n${triviaWithAnswersText}\`\`\``,
+        },
+      },
+    ];
+
+    await app.client.chat.postMessage({
+      channel: 'C04D6JZ0L67',  // Replace with your Trivia Channel ID
+      text: `*${quizTitle} - ANSWERS*`,
+      blocks: [
+        {
+          'type': 'section',
+          'text': {
+            'type': 'mrkdwn',
+            'text': `📝 Last Week's \`${quizTitle.toUpperCase()}\` Trivia - ANSWERS`,
+          },
+        },
+        ...answersBlocks,
+      ],
+    });
+  }
+
+  // Function to post current week's trivia
+  async function postCurrentWeeksTrivia() {
+    // Use getNextTrivia() instead of getTrivia() without parameters
+    const currentTrivia = await getNextTrivia();
+    
+    // Check if currentTrivia exists and has the required properties
+    if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
+      console.log('No current trivia found or missing data');
+      return;
+    }
+    
+    const quizTitle = currentTrivia.topic;
+
+    const title = quizTitle.split(' ')
+        .map(word => word[0].toUpperCase() + word.slice(1))
+        .join(' ');
 
     let questionText = `${title}\n`;
 
-    previousTrivia.questions.forEach((item, index) => {
-      questionText += `\n${index + 1}. ${item.question}\n`;
+    currentTrivia.questions.forEach((item, index) => {
+      const questionLabel = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
+      questionText += `\n${questionLabel}: ${item.question}\n`;
     });
 
     let questionBlocks = [
@@ -48,47 +124,44 @@ const previousTrivia = await getLastWeeksTrivia();
         'type': 'section',
         'text': {
           'type': 'mrkdwn',
-          'text': `\`\`\`\n${questionText}\`\`\``, // Wrap all questions in a single code block
+          'text': `\`\`\`\n${questionText}\`\`\``,
         },
       },
     ];
 
-    try {
-      await app.client.chat.postMessage({
-        channel: 'C04D6JZ0L67',  // to be replaced with Trivia Channel ID
-        text: `*${quizTitle}*`,
-        blocks: [
-          {
-            'type': 'section',
-            'text': {
-              'type': 'mrkdwn',
-              'text': `Your \`${quizTitle.toUpperCase()}\` Trivia`,
-            },
+    await app.client.chat.postMessage({
+      channel: 'C04D6JZ0L67',  // Replace with your Trivia Channel ID
+      text: `*${quizTitle}*`,
+      blocks: [
+        {
+          'type': 'section',
+          'text': {
+            'type': 'mrkdwn',
+            'text': `🧠 This Week's \`${quizTitle.toUpperCase()}\` Trivia`,
           },
-            ...questionBlocks,
-          {
-            'type': 'actions',
-            'elements': [
-              {
-                'type': 'button',
-                'text': {
-                  'type': 'plain_text',
-                  'text': 'Play',
-                  'emoji': true,
-                },
-                "style": "primary",
-                'value': 'play_button',
-                'action_id': 'play',
+        },
+        ...questionBlocks,
+        {
+          'type': 'actions',
+          'elements': [
+            {
+              'type': 'button',
+              'text': {
+                'type': 'plain_text',
+                'text': 'Play',
+                'emoji': true,
               },
-            ],
-          },
-        ],
-      });
-    } catch (error) {
-      console.error('Error sending message:', error);
-    }
-  });
+              "style": "primary",
+              'value': 'play_button',
+              'action_id': 'play',
+            },
+          ],
+        },
+      ],
+    });
+  }
 
+  // Rest of your existing code...
   app.event('app_home_opened', async ({ event, client }) => {
     try {
       // Display App Home

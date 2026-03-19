@@ -7,13 +7,6 @@ import {
   getEndOfDay, 
 } from '../../services/utils/datetime.js';
 
-export async function getAll() {
-  const quizzesCol = collection(firebaseDatabase, 'quizzes');
-  const quizSnapshot = await getDocs(quizzesCol);
-
-  return quizSnapshot.docs.map(doc => doc.data());
-}
-
 export async function getAllTopics() {
   const quizzesCol = collection(firebaseDatabase, 'quizzes');
   const quizSnapshot = await getDocs(quizzesCol);
@@ -58,18 +51,29 @@ export async function getNextTrivia() {
 
 export async function getLastWeeksTrivia() {
   const nextThursday = getNextThursday();
-  const startOfDay = getStartOfDay(nextThursday);
+
+  // Calculate last Thursday (7 days ago from next Thursday)
+  const lastThursday = new Date(nextThursday);
+  lastThursday.setDate(nextThursday.getDate() - 7);
+  
+  const lastThursdayStart = getStartOfDay(lastThursday);
+  const lastThursdayEnd = getEndOfDay(lastThursday);
+  
   let previousTrivia;
 
   const triviaRef = collection(firebaseDatabase, 'quizzes');
 
-  const nextTriviaQuery = query(triviaRef, where('date', '<=', startOfDay));
+  // Query for trivia specifically on last Thursday
+  const previousTriviaQuery = query(
+    triviaRef, 
+    where('date', '>=', lastThursdayStart),
+    where('date', '<=', lastThursdayEnd)
+  );
 
-  const snapshot = await getDocs(nextTriviaQuery);
+  const snapshot = await getDocs(previousTriviaQuery);
 
   snapshot.forEach(doc => {
     previousTrivia = doc.data();
-    return previousTrivia;
   });
 
   return previousTrivia;
