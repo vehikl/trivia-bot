@@ -1,8 +1,7 @@
 import OpenAI from 'openai';
 import {store} from '../models/quiz/quiz.js';
-import {zodResponseFormat} from 'openai/helpers/zod';
-import {z} from 'zod';
 import {getStartOfDay} from '../services/utils/datetime.js';
+import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
@@ -11,16 +10,6 @@ let questions = [];
 let questionBlocks = [];
 let isValidDateMessage;
 let messageResponses = [];
-
-const question = z.object({
-  question: z.string(),
-  correctAnswer: z.string(),
-  isBonus: z.boolean(),
-});
-
-const generateQuestions = z.object({
-  questions: z.array(question).length(6),
-});
 
 let generateMessageResponse;
 
@@ -60,30 +49,7 @@ export function generateCommand(app) {
 const executeCommand = async (app, body, say) => {
   topic = body.text;
 
-  const completion = await openai.chat.completions.create({
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are writing a weekly office trivia quiz.\n' +
-          'Requirements:\n' +
-          '- Produce exactly 6 questions total: 5 regular questions and 1 bonus question.\n' +
-          '- All questions must match the supplied theme/topic.\n' +
-          '- Each question should include 1–3 sentences of helpful clue/context BEFORE the actual ask, similar in style to the Pixar examples.\n' +
-          '- Short-answer format (no multiple choice).\n' +
-          '- Provide a concise canonical answer for each question.\n' +
-          '- Mark the bonus question with isBonus=true; all other questions isBonus=false.\n' +
-          'Output format:\n' +
-          '- Respond with a JSON string matching: { "questions": [ { "question": string, "correctAnswer": string, "isBonus": boolean }, ... ] }\n' +
-          '- The array must contain exactly 6 objects.\n' +
-          'Theme/topic: ' + topic,
-      },
-    ],
-    model: 'gpt-4.1-nano',
-    response_format: zodResponseFormat(generateQuestions, 'generate_questions'),
-  });
-
-  const response = JSON.parse(completion.choices[0].message.content);
+  const response = await generateQuestionsForTopic(openai, topic);
 
   // const response = exampleGenerateResponse;
 

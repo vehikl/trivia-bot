@@ -49,6 +49,29 @@ export async function getNextTrivia() {
   return nextTrivia;
 }
 
+/** Quiz stored for a specific calendar day (start/end of local day). */
+export async function getTriviaForCalendarDay(day) {
+  const d = day instanceof Date ? day : new Date(day);
+  const start = getStartOfDay(d);
+  const end = getEndOfDay(d);
+  if (!start || !end) {
+    return undefined;
+  }
+
+  let trivia;
+  const triviaRef = collection(firebaseDatabase, 'quizzes');
+  const q = query(
+    triviaRef,
+    where('date', '>=', start),
+    where('date', '<=', end)
+  );
+  const snapshot = await getDocs(q);
+  snapshot.forEach((doc) => {
+    trivia = doc.data();
+  });
+  return trivia;
+}
+
 export async function getLastWeeksTrivia() {
   const nextThursday = getNextThursday();
 

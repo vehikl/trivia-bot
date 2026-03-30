@@ -2,13 +2,38 @@ import slackApp from '@slack/bolt';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
 import OpenAI from 'openai';
-import {getLastWeeksTrivia, getTrivia, getNextTrivia} from './models/quiz/quiz.js';
+import {
+  getLastWeeksTrivia,
+  getTrivia,
+  getNextTrivia,
+  getTriviaForCalendarDay,
+  store as storeQuiz,
+} from './models/quiz/quiz.js';
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
 import {getSubmission, store} from "./models/submission/submission.js";
+import {collection, getDocs, query, where} from 'firebase/firestore';
+import firebaseDatabase from './services/firebase/databaseConnection.js';
+import {fromFirestoreTimestamp, getNextThursday, getStartOfDay} from './services/utils/datetime.js';
+import {generateQuestionsForTopic} from './services/trivia/generateQuiz.js';
+import {pickWeeklyTopic, pickTopicForCalendarDay} from './services/trivia/weeklyTopic.js';
 
 dotenv.config();
+
+function isDailyTestCronEnabled() {
+  return (
+    process.env.TRIVIA_DAILY_TEST_CRON === 'true' ||
+    process.env.TRIVIA_DAILY_TEST_CRON === '1'
+  );
+}
+
+async function getDefaultTriviaForPlay() {
+  if (isDailyTestCronEnabled()) {
+    return getTriviaForCalendarDay(new Date());
+  }
+  return getLastWeeksTrivia();
+}
 
 const {App} = slackApp;
 
@@ -28,22 +53,44 @@ generateCommand(app);
 
 (async () => {
   await app.start();
-  
-  // Schedule to run every 30 seconds (FOR TESTING ONLY)
-  cron.schedule('0 9 * * 4', async () => {
-    try {
-      console.log('Running test cron job...', new Date().toISOString());
-      
-      // First, post last week's trivia with answers
-      await postLastWeeksTriviaWithAnswers();
-      
-      // Then post this week's new trivia questions
-      await postCurrentWeeksTrivia();
-      
-    } catch (error) {
-      console.error('Error in cron job:', error);
-    }
-  });
+
+  if (isDailyTestCronEnabled()) {
+    console.log(
+      'TRIVIA_DAILY_TEST_CRON is on: every day at 9:00 — generate & post quiz for today (weekly Thursday cron disabled).'
+    );
+    cron.schedule('0 9 * * *', async () => {
+      try {
+        console.log(
+          '[daily test cron]',
+          new Date().toISOString()
+        );
+        await ensureTodaysQuizExists();
+        await postTodaysTrivia();
+      } catch (error) {
+        console.error('[daily test cron] error:', error);
+      }
+    });
+  } else {
+    cron.schedule('0 9 * * 4', async () => {
+      try {
+        console.log('Running weekly trivia cron job...', new Date().toISOString());
+
+        await ensureThisWeeksQuizExists();
+
+        const previousTrivia = await getLastWeeksTrivia();
+
+        await postLastWeeksTriviaWithAnswers();
+
+        if (previousTrivia) {
+          await postWeeklyLeaderboard(previousTrivia);
+        }
+
+        await postCurrentWeeksTrivia();
+      } catch (error) {
+        console.error('Error in cron job:', error);
+      }
+    });
+  }
 
   // Function to post last week's trivia with answers
   async function postLastWeeksTriviaWithAnswers() {
@@ -93,6 +140,173 @@ generateCommand(app);
         ...answersBlocks,
       ],
     });
+  }
+
+  // Add this function after postLastWeeksTriviaWithAnswers
+async function postWeeklyLeaderboard(previousTrivia) {
+  if (!previousTrivia || !previousTrivia.date) {
+    console.log('No trivia data for leaderboard');
+    return;
+  }
+
+  const leaderboardData = await getWeeklyLeaderboard(previousTrivia);
+  
+  if (!leaderboardData || leaderboardData.length === 0) {
+    console.log('No submissions found for leaderboard');
+    return;
+  }
+
+  let leaderboardText = `${previousTrivia.topic.toUpperCase()} - LEADERBOARD\n\n`;
+  
+  leaderboardData.forEach((entry, index) => {
+    const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
+    const bonusText = entry.bonus_score > 0 ? ` (+${entry.bonus_score} bonus)` : '';
+    leaderboardText += `${medal} ${index + 1}. <@${entry.user_id}>: ${entry.user_score}/${entry.total_questions}${bonusText}\n`;
+  });
+
+  const leaderboardBlocks = [
+    {
+      'type': 'section',
+      'text': {
+        'type': 'mrkdwn',
+        'text': `🏆 **Last Week's Champions** 🏆`,
+      },
+    },
+    {
+      'type': 'section',
+      'text': {
+        'type': 'mrkdwn',
+        'text': `\`\`\`\n${leaderboardText}\`\`\``,
+      },
+    },
+  ];
+
+  await app.client.chat.postMessage({
+    channel: 'C04D6JZ0L67',
+    text: `🏆 ${previousTrivia.topic} Leaderboard`,
+    blocks: leaderboardBlocks,
+  });
+}
+
+  async function ensureTodaysQuizExists() {
+    const today = getStartOfDay(new Date());
+    const existing = await getTriviaForCalendarDay(today);
+    if (
+      existing?.topic &&
+      Array.isArray(existing.questions) &&
+      existing.questions.length === 6
+    ) {
+      console.log('[daily test] Quiz already present for today; skipping generation.');
+      return;
+    }
+
+    const topic = pickTopicForCalendarDay(today);
+    console.log('[daily test] Generating quiz for today, topic:', topic);
+    const payload = await generateQuestionsForTopic(openai, topic);
+    const questions = payload.questions.map((item) => ({
+      question: item.question,
+      correctAnswer: item.correctAnswer,
+      isBonus: item.isBonus,
+    }));
+    const ok = await storeQuiz({topic, questions, date: today});
+    if (!ok) {
+      throw new Error('[daily test] Failed to store quiz');
+    }
+  }
+
+  async function postTodaysTrivia() {
+    const today = getStartOfDay(new Date());
+    const currentTrivia = await getTriviaForCalendarDay(today);
+
+    if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
+      console.log('[daily test] No trivia to post for today');
+      return;
+    }
+
+    const quizTitle = currentTrivia.topic;
+
+    const title = quizTitle
+      .split(' ')
+      .map((word) => word[0].toUpperCase() + word.slice(1))
+      .join(' ');
+
+    let questionText = `${title}\n`;
+
+    currentTrivia.questions.forEach((item, index) => {
+      const questionLabel = item.isBonus
+        ? 'Bonus Question'
+        : `Question ${index + 1}`;
+      questionText += `\n${questionLabel}: ${item.question}\n`;
+    });
+
+    const questionBlocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `\`\`\`\n${questionText}\`\`\``,
+        },
+      },
+    ];
+
+    await app.client.chat.postMessage({
+      channel: 'C04D6JZ0L67',
+      text: `*${quizTitle}* (daily test)`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🧪 *Daily test* — Today's \`${quizTitle.toUpperCase()}\` trivia (${today.toDateString()})`,
+          },
+        },
+        ...questionBlocks,
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: 'Play',
+                emoji: true,
+              },
+              style: 'primary',
+              value: 'play_button',
+              action_id: 'play',
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  async function ensureThisWeeksQuizExists() {
+    const existing = await getNextTrivia();
+    if (
+      existing?.topic &&
+      Array.isArray(existing.questions) &&
+      existing.questions.length === 6
+    ) {
+      console.log(
+        'Weekly quiz already present for this Thursday; skipping auto-generation.'
+      );
+      return;
+    }
+
+    const topic = pickWeeklyTopic();
+    console.log('Auto-generating weekly quiz, topic:', topic);
+    const payload = await generateQuestionsForTopic(openai, topic);
+    const date = getStartOfDay(getNextThursday());
+    const questions = payload.questions.map((item) => ({
+      question: item.question,
+      correctAnswer: item.correctAnswer,
+      isBonus: item.isBonus,
+    }));
+    const ok = await storeQuiz({topic, questions, date});
+    if (!ok) {
+      throw new Error('Failed to store auto-generated weekly quiz');
+    }
   }
 
   // Function to post current week's trivia
@@ -265,7 +479,7 @@ async function playTime(body, client, logger) {
   const userId = body.user?.id ?? body.user_id;
 
   const trivia = !body.text
-    ? await getLastWeeksTrivia()
+    ? await getDefaultTriviaForPlay()
     : await getTrivia(body.text);
 
   let alreadyPlayed = false;
@@ -524,3 +738,57 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     blocks: questionBlocks,
   });
 });
+
+export async function getWeeklyLeaderboard(trivia) {
+  try {
+    // Convert trivia date to match submission date format
+    const triviaDate = trivia.date?.seconds 
+      ? fromFirestoreTimestamp(trivia.date) 
+      : (trivia.date instanceof Date ? trivia.date : new Date(trivia.date));
+    
+    const startOfDay = new Date(triviaDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(triviaDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const submissionsRef = collection(firebaseDatabase, 'submissions');
+    const leaderboardQuery = query(
+      submissionsRef,
+      where('date', '>=', startOfDay),
+      where('date', '<=', endOfDay)
+    );
+
+    const snapshot = await getDocs(leaderboardQuery);
+    const submissions = [];
+    
+    snapshot.forEach(doc => {
+      submissions.push(doc.data());
+    });
+
+    // Calculate total questions for scoring context
+    const regularQuestions = trivia.questions?.filter(q => !q.isBonus).length || 0;
+    const bonusQuestions = trivia.questions?.filter(q => q.isBonus).length || 0;
+
+    // Sort by score (regular score first, then bonus score as tiebreaker)
+    const sortedSubmissions = submissions
+      .map(submission => ({
+        ...submission,
+        total_questions: regularQuestions,
+        bonus_questions: bonusQuestions
+      }))
+      .sort((a, b) => {
+        // First sort by regular score
+        if (b.user_score !== a.user_score) {
+          return b.user_score - a.user_score;
+        }
+        // Then by bonus score as tiebreaker
+        return (b.bonus_score || 0) - (a.bonus_score || 0);
+      });
+
+    return sortedSubmissions;
+  } catch (error) {
+    console.error('Error getting weekly leaderboard:', error);
+    return [];
+  }
+}
