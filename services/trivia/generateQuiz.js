@@ -28,6 +28,8 @@ export function buildQuizSystemPrompt(topic) {
     '- Where natural, tie clues or framing to the current season, holidays, or time of year (use the calendar hint below).\n' +
     `Calendar hint: ${calendarHint}.\n` +
     'Requirements:\n' +
+    '- Difficulty: easy-to-medium. Prefer broadly known facts and common terminology; avoid obscure people, obscure dates/events, and hard-to-guess obscure trivia.\n' +
+    '- If the topic is technical, stick to widely used tools, mainstream concepts, and practical knowledge (avoid deep internals or niche acronyms unless very common).\n' +
     '- Produce exactly 6 questions total: 5 regular questions and 1 bonus question.\n' +
     '- All questions must match the supplied theme/topic.\n' +
     '- Each question should include 1–3 sentences of helpful clue/context BEFORE the actual ask, similar in style to the Pixar examples.\n' +
