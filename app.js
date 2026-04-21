@@ -66,6 +66,7 @@ generateCommand(app);
         );
         await ensureTodaysQuizExists();
         await postTodaysTrivia();
+        await postTodaysLeaderboard();
       } catch (error) {
         console.error('[daily test cron] error:', error);
       }
@@ -143,50 +144,72 @@ generateCommand(app);
   }
 
   // Add this function after postLastWeeksTriviaWithAnswers
-async function postWeeklyLeaderboard(previousTrivia) {
-  if (!previousTrivia || !previousTrivia.date) {
-    console.log('No trivia data for leaderboard');
-    return;
+  async function postWeeklyLeaderboard(previousTrivia, options = {}) {
+    if (!previousTrivia || !previousTrivia.date) {
+      console.log('No trivia data for leaderboard');
+      return;
+    }
+
+    const {
+      fallbackText = `🏆 ${previousTrivia.topic} Leaderboard`,
+      headingText = `🏆 **Last Week's Champions** 🏆`,
+      noSubmissionsLog = 'No submissions found for leaderboard',
+    } = options;
+
+    const leaderboardData = await getWeeklyLeaderboard(previousTrivia);
+    
+    if (!leaderboardData || leaderboardData.length === 0) {
+      console.log(noSubmissionsLog);
+      return;
+    }
+
+    let leaderboardText = `${previousTrivia.topic.toUpperCase()} - LEADERBOARD\n\n`;
+    
+    leaderboardData.forEach((entry, index) => {
+      const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
+      const bonusText = entry.bonus_score > 0 ? ` (+${entry.bonus_score} bonus)` : '';
+      leaderboardText += `${medal} ${index + 1}. <@${entry.user_id}>: ${entry.user_score}/${entry.total_questions}${bonusText}\n`;
+    });
+
+    const leaderboardBlocks = [
+      {
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': headingText,
+        },
+      },
+      {
+        'type': 'section',
+        'text': {
+          'type': 'mrkdwn',
+          'text': `\`\`\`\n${leaderboardText}\`\`\``,
+        },
+      },
+    ];
+
+    await app.client.chat.postMessage({
+      channel: 'C04D6JZ0L67',
+      text: fallbackText,
+      blocks: leaderboardBlocks,
+    });
   }
 
-  const leaderboardData = await getWeeklyLeaderboard(previousTrivia);
-  
-  if (!leaderboardData || leaderboardData.length === 0) {
-    console.log('No submissions found for leaderboard');
-    return;
+  async function postTodaysLeaderboard() {
+    const today = getStartOfDay(new Date());
+    const currentTrivia = await getTriviaForCalendarDay(today);
+
+    if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
+      console.log('[daily test] No trivia to post leaderboard for today');
+      return;
+    }
+
+    await postWeeklyLeaderboard(currentTrivia, {
+      fallbackText: `🧪 ${currentTrivia.topic} Test Leaderboard`,
+      headingText: `🧪 **Today's Test Leaderboard** 🧪`,
+      noSubmissionsLog: '[daily test] No submissions found for test leaderboard',
+    });
   }
-
-  let leaderboardText = `${previousTrivia.topic.toUpperCase()} - LEADERBOARD\n\n`;
-  
-  leaderboardData.forEach((entry, index) => {
-    const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
-    const bonusText = entry.bonus_score > 0 ? ` (+${entry.bonus_score} bonus)` : '';
-    leaderboardText += `${medal} ${index + 1}. <@${entry.user_id}>: ${entry.user_score}/${entry.total_questions}${bonusText}\n`;
-  });
-
-  const leaderboardBlocks = [
-    {
-      'type': 'section',
-      'text': {
-        'type': 'mrkdwn',
-        'text': `🏆 **Last Week's Champions** 🏆`,
-      },
-    },
-    {
-      'type': 'section',
-      'text': {
-        'type': 'mrkdwn',
-        'text': `\`\`\`\n${leaderboardText}\`\`\``,
-      },
-    },
-  ];
-
-  await app.client.chat.postMessage({
-    channel: 'C04D6JZ0L67',
-    text: `🏆 ${previousTrivia.topic} Leaderboard`,
-    blocks: leaderboardBlocks,
-  });
-}
 
   async function ensureTodaysQuizExists() {
     const today = getStartOfDay(new Date());
@@ -471,8 +494,6 @@ async function postWeeklyLeaderboard(previousTrivia) {
       logger.error('Error opening trivia modal:', error);
     }
   });
-
-  console.log('⚡️ Bolt app is running!');
 })();
 
 async function playTime(body, client, logger) {
@@ -579,6 +600,48 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
   const triviaDocument = await getTrivia({ date: metadata.quizDate });
   const normalize = (s) => (s || '').trim().toLowerCase();
+  const normalizeNoSpaces = (s) => normalize(s).replace(/\s+/g, '');
+
+  const acronymFromAnswer = (text) => {
+    // Turn "JavaScript" -> "JS" by splitting camelCase + non-alphanumerics.
+    const cleaned = (text || '')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[^a-zA-Z0-9]+/g, ' ')
+      .trim();
+
+    if (!cleaned) return '';
+
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '';
+
+    return parts.map((p) => (p[0] ? p[0] : '')).join('').toUpperCase();
+  };
+
+  const isNounVerbVariantMatch = (correct, user) => {
+    // Lightweight handling for common verb/noun pairs like:
+    // "Encryption" (tion) vs "Encrypting" (ing)
+    const c = normalize(correct);
+    const u = normalize(user);
+    if (!c || !u) return false;
+
+    const cHasTion = /(tion|sion|cion)$/.test(c);
+    const uHasIng = /ing$/.test(u);
+    if (cHasTion && uHasIng) {
+      const cStem = c.replace(/(tion|sion|cion)$/, '');
+      const uStem = u.replace(/ing$/, '');
+      return cStem && uStem && cStem === uStem;
+    }
+
+    const cHasIng = /ing$/.test(c);
+    const uHasTion = /(tion|sion|cion)$/.test(u);
+    if (cHasIng && uHasTion) {
+      const cStem = c.replace(/ing$/, '');
+      const uStem = u.replace(/(tion|sion|cion)$/, '');
+      return cStem && uStem && cStem === uStem;
+    }
+
+    return false;
+  };
 
   for (let i = 0; i < userSubmissions.length; i++) {
     const userAnswer = userSubmissions[i];
@@ -604,10 +667,28 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     // Check if correct answer contains multiple options separated by "or"
     const correctOptions = correctAnswer.split(/\s+or\s+/i).map(option => option.trim());
     const userAnswerNormalized = normalize(userAnswer);
+    const userAnswerNormalizedNoSpaces = normalizeNoSpaces(userAnswer);
 
     let isCorrectOption = false;
     for (const option of correctOptions) {
-      if (userAnswerNormalized === normalize(option)) {
+      const optionNormalized = normalize(option);
+      const optionNormalizedNoSpaces = normalizeNoSpaces(option);
+
+      // Exact (including "or" options)
+      if (userAnswerNormalized === optionNormalized) {
+        isCorrectOption = true;
+        break;
+      }
+
+      // Accept acronym/initialism when canonical answer is expanded (e.g., JS for JavaScript)
+      const optionAcronym = acronymFromAnswer(option);
+      if (optionAcronym && userAnswerNormalizedNoSpaces === optionAcronym.toLowerCase()) {
+        isCorrectOption = true;
+        break;
+      }
+
+      // Accept very common grammatical variants (e.g., Encryption vs Encrypting)
+      if (isNounVerbVariantMatch(optionNormalizedNoSpaces, userAnswerNormalizedNoSpaces)) {
         isCorrectOption = true;
         break;
       }
@@ -634,6 +715,8 @@ app.view('trivia_view', async ({ ack, body, client }) => {
               'You are a strict grader for short-answer trivia. ' +
               'Given a question, the canonical correct answer, and a user answer, decide if the user answer is truly correct.\n' +
               '- If the correct answer contains "or", any of the options listed is acceptable.\n' +
+              '- Treat acronyms/initialisms as correct when they match the initial letters of the canonical answer.\n' +
+              '- Treat common grammatical variants (e.g., noun vs gerund) as correct when the base meaning is the same.\n' +
               '- Treat minor spelling errors or very small wording differences as CORRECT if they clearly refer to the same factual answer.\n' +
               '- Case differences (Medal Collection vs medal collection) should be treated as CORRECT.\n' +
               '- If the user names a different place/person/thing (e.g. "Brazil" as the capital of Brazil) it must be marked INCORRECT.\n' +
@@ -739,6 +822,36 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   });
 });
 
+function getNumericScore(score) {
+  const value = Number(score);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getSubmissionTimeMillis(submission) {
+  const time = submission.time;
+
+  if (Number.isFinite(Number(time))) {
+    return Number(time);
+  }
+
+  if (time?.seconds) {
+    return (time.seconds * 1000) + Math.floor((time.nanoseconds || 0) / 1000000);
+  }
+
+  if (time instanceof Date) {
+    return time.getTime();
+  }
+
+  if (typeof time === 'string') {
+    const parsed = Date.parse(time);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+}
+
 export async function getWeeklyLeaderboard(trivia) {
   try {
     // Convert trivia date to match submission date format
@@ -770,7 +883,7 @@ export async function getWeeklyLeaderboard(trivia) {
     const regularQuestions = trivia.questions?.filter(q => !q.isBonus).length || 0;
     const bonusQuestions = trivia.questions?.filter(q => q.isBonus).length || 0;
 
-    // Sort by score (regular score first, then bonus score as tiebreaker)
+    // Sort by score, with fastest submitter winning ties between perfect scores.
     const sortedSubmissions = submissions
       .map(submission => ({
         ...submission,
@@ -778,12 +891,28 @@ export async function getWeeklyLeaderboard(trivia) {
         bonus_questions: bonusQuestions
       }))
       .sort((a, b) => {
-        // First sort by regular score
-        if (b.user_score !== a.user_score) {
-          return b.user_score - a.user_score;
+        const aRegularScore = getNumericScore(a.user_score);
+        const bRegularScore = getNumericScore(b.user_score);
+        const regularScoreDifference = bRegularScore - aRegularScore;
+        if (regularScoreDifference !== 0) {
+          return regularScoreDifference;
         }
-        // Then by bonus score as tiebreaker
-        return (b.bonus_score || 0) - (a.bonus_score || 0);
+
+        const aHasPerfectRegularScore = regularQuestions > 0 && aRegularScore >= regularQuestions;
+        const bHasPerfectRegularScore = regularQuestions > 0 && bRegularScore >= regularQuestions;
+        if (aHasPerfectRegularScore && bHasPerfectRegularScore) {
+          const submissionTimeDifference = getSubmissionTimeMillis(a) - getSubmissionTimeMillis(b);
+          if (submissionTimeDifference !== 0) {
+            return submissionTimeDifference;
+          }
+        }
+
+        const bonusScoreDifference = getNumericScore(b.bonus_score) - getNumericScore(a.bonus_score);
+        if (bonusScoreDifference !== 0) {
+          return bonusScoreDifference;
+        }
+
+        return getSubmissionTimeMillis(a) - getSubmissionTimeMillis(b);
       });
 
     return sortedSubmissions;
