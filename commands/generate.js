@@ -5,12 +5,6 @@ import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
-let topic = '';
-let questions = [];
-let questionBlocks = [];
-let isValidDateMessage;
-let messageResponses = [];
-
 let generateMessageResponse;
 
 export function generateCommand(app) {
@@ -27,15 +21,11 @@ export function generateCommand(app) {
       return;
     }
 
-    messageResponses = [];
-
     generateMessageResponse = await app.client.chat.postEphemeral({
       channel: body.channel_id,
       user: body.user_id,
       text: 'Generating Questions... :brain:',
     });
-
-    messageResponses.push(generateMessageResponse)
 
     try {
       await executeCommand(app, body, say);
@@ -47,7 +37,7 @@ export function generateCommand(app) {
 }
 
 const executeCommand = async (app, body, say) => {
-  topic = body.text;
+  const topic = body.text;
 
   const response = await generateQuestionsForTopic(openai, topic);
 
@@ -55,7 +45,7 @@ const executeCommand = async (app, body, say) => {
 
   let date = null;
 
-  questionBlocks = [];
+  const questionBlocks = [];
 
   response.questions.forEach((item, index) => {
     const label = item.isBonus ? `*Bonus Question: ${item.question}*` : `*Question ${index + 1}: ${item.question}*`;
@@ -98,7 +88,7 @@ const executeCommand = async (app, body, say) => {
     await ack();
 
     if (!date) {
-      isValidDateMessage = await app.client.chat.postEphemeral({
+      await app.client.chat.postEphemeral({
         channel: body.channel_id,
         user: body.user?.id ?? body.user_id,
         text: 'Please select a date first!',
@@ -111,7 +101,7 @@ const executeCommand = async (app, body, say) => {
     const selectedStart = getStartOfDay(selectedDate);
 
     if (selectedStart < todayStart) {
-      isValidDateMessage = await app.client.chat.postEphemeral({
+      await app.client.chat.postEphemeral({
         channel: body.channel_id,
         user: body.user?.id ?? body.user_id,
         text: 'Please select a valid date!',
@@ -120,7 +110,7 @@ const executeCommand = async (app, body, say) => {
     }
 
     try {
-      questions = response.questions.map(item => ({
+      const questions = response.questions.map(item => ({
         question: item.question,
         correctAnswer: item.correctAnswer,
         isBonus: item.isBonus,
@@ -209,5 +199,4 @@ const executeCommand = async (app, body, say) => {
     ],
   });
 
-  messageResponses.push(messageResponse);
 };

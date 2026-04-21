@@ -107,7 +107,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
     console.log(
       'TRIVIA_DAILY_TEST_CRON is on: every day at 9:00 — generate & post quiz for today (weekly Thursday cron disabled).'
     );
-    cron.schedule('*/1 * * * *', async () => {
+    cron.schedule('0 9 * * *', async () => {
       try {
         console.log(
           '[daily test cron]',

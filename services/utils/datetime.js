@@ -109,21 +109,3 @@ export function getNextThursday() {
   // Thursday is day 4 (0-indexed, where 0 is Sunday)
   return getNextDayOfWeek(4);
 }
-
-/**
- * Compare two dates to check if they are the same day
- * @param {Date} date1 - First date to compare
- * @param {Date} date2 - Second date to compare
- * @returns {boolean} True if dates are the same day
- */
-export function isSameDay(date1, date2) {
-  if (!date1 || !date2 || !(date1 instanceof Date) || !(date2 instanceof Date)) {
-    return false;
-  }
-  
-  return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
-  );
-}
