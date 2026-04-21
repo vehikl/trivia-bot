@@ -12,6 +12,7 @@ import {
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
+import {requestCommand} from './commands/request.js';
 import {getSubmission, store} from "./models/submission/submission.js";
 import {collection, getDocs, query, where} from 'firebase/firestore';
 import firebaseDatabase from './services/firebase/databaseConnection.js';
@@ -35,6 +36,53 @@ async function getDefaultTriviaForPlay() {
   return getLastWeeksTrivia();
 }
 
+function getTriviaDateForRequest() {
+  if (isDailyTestCronEnabled()) {
+    return getStartOfDay(new Date());
+  }
+
+  const requestDate = getStartOfDay(getNextThursday());
+  const today = getStartOfDay(new Date());
+  if (requestDate <= today) {
+    requestDate.setDate(requestDate.getDate() + 7);
+  }
+
+  return requestDate;
+}
+
+function getRequestedByText(trivia) {
+  const requestedBy = trivia?.requestedBy;
+  if (!requestedBy) {
+    return null;
+  }
+
+  const userId = typeof requestedBy === 'string' ? requestedBy : requestedBy.userId;
+  const userName = typeof requestedBy === 'object' ? requestedBy.userName : '';
+  const userDisplay = userId ? `<@${userId}>` : userName;
+  if (!userDisplay) {
+    return null;
+  }
+
+  return `Trivia Topic Requested by: ${userDisplay}`;
+}
+
+function getRequestedByBlocks(trivia) {
+  const requestedByText = getRequestedByText(trivia);
+  if (!requestedByText) {
+    return [];
+  }
+
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: requestedByText,
+      },
+    },
+  ];
+}
+
 const {App} = slackApp;
 
 const app = new App({
@@ -50,6 +98,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 allCommand(app);
 answersCommand(app);
 generateCommand(app);
+requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
 
 (async () => {
   await app.start();
@@ -58,7 +107,7 @@ generateCommand(app);
     console.log(
       'TRIVIA_DAILY_TEST_CRON is on: every day at 9:00 — generate & post quiz for today (weekly Thursday cron disabled).'
     );
-    cron.schedule('0 9 * * *', async () => {
+    cron.schedule('*/1 * * * *', async () => {
       try {
         console.log(
           '[daily test cron]',
@@ -283,6 +332,7 @@ generateCommand(app);
             text: `🧪 *Daily test* — Today's \`${quizTitle.toUpperCase()}\` trivia (${today.toDateString()})`,
           },
         },
+        ...getRequestedByBlocks(currentTrivia),
         ...questionBlocks,
         {
           type: 'actions',
@@ -377,6 +427,7 @@ generateCommand(app);
             'text': `🧠 This Week's \`${quizTitle.toUpperCase()}\` Trivia`,
           },
         },
+        ...getRequestedByBlocks(currentTrivia),
         ...questionBlocks,
         {
           'type': 'actions',
