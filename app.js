@@ -38,7 +38,9 @@ async function getDefaultTriviaForPlay() {
 
 function getTriviaDateForRequest() {
   if (isDailyTestCronEnabled()) {
-    return getStartOfDay(new Date());
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return getStartOfDay(tomorrow);
   }
 
   const requestDate = getStartOfDay(getNextThursday());
