@@ -14,76 +14,26 @@ import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
 import {requestCommand} from './commands/request.js';
 import {getSubmission, store} from "./models/submission/submission.js";
-import {collection, doc, getDoc, getDocs, query, setDoc, where} from 'firebase/firestore';
-import firebaseDatabase from './services/firebase/databaseConnection.js';
-import {fromFirestoreTimestamp, getNextThursday, getStartOfDay} from './services/utils/datetime.js';
+import {getNextThursday, getStartOfDay} from './services/utils/datetime.js';
 import {generateQuestionsForTopic} from './services/trivia/generateQuiz.js';
+import {gradeTriviaSubmission} from './services/trivia/grader.js';
+import {upsertLeaderboardMessage} from './services/trivia/leaderboard.js';
+import {openTriviaModal} from './services/trivia/playModal.js';
+import {
+  getDefaultTriviaForPlay,
+  getTriviaDateForRequest,
+  isDailyTestCronEnabled,
+} from './services/trivia/runtime.js';
+import {
+  buildAnswersBlocks,
+  buildPlayButtonBlock,
+  buildTriviaQuestionBlocks,
+  getRequestedByBlocks,
+} from './services/trivia/slackBlocks.js';
 import {pickWeeklyTopic, pickTopicForCalendarDay} from './services/trivia/weeklyTopic.js';
+import {registerHomeView} from './services/slack/home.js';
 
 dotenv.config();
-
-function isDailyTestCronEnabled() {
-  return (
-    process.env.TRIVIA_DAILY_TEST_CRON === 'true' ||
-    process.env.TRIVIA_DAILY_TEST_CRON === '1'
-  );
-}
-
-async function getDefaultTriviaForPlay() {
-  if (isDailyTestCronEnabled()) {
-    return getTriviaForCalendarDay(new Date());
-  }
-  return getLastWeeksTrivia();
-}
-
-function getTriviaDateForRequest() {
-  if (isDailyTestCronEnabled()) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return getStartOfDay(tomorrow);
-  }
-
-  const requestDate = getStartOfDay(getNextThursday());
-  const today = getStartOfDay(new Date());
-  if (requestDate <= today) {
-    requestDate.setDate(requestDate.getDate() + 7);
-  }
-
-  return requestDate;
-}
-
-function getRequestedByText(trivia) {
-  const requestedBy = trivia?.requestedBy;
-  if (!requestedBy) {
-    return null;
-  }
-
-  const userId = typeof requestedBy === 'string' ? requestedBy : requestedBy.userId;
-  const userName = typeof requestedBy === 'object' ? requestedBy.userName : '';
-  const userDisplay = userId ? `<@${userId}>` : userName;
-  if (!userDisplay) {
-    return null;
-  }
-
-  return `Trivia Topic Requested by: ${userDisplay}`;
-}
-
-function getRequestedByBlocks(trivia) {
-  const requestedByText = getRequestedByText(trivia);
-  if (!requestedByText) {
-    return [];
-  }
-
-  return [
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: requestedByText,
-      },
-    },
-  ];
-}
 
 const {App} = slackApp;
 
@@ -101,6 +51,7 @@ allCommand(app);
 answersCommand(app);
 generateCommand(app);
 requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
+registerHomeView(app);
 
 (async () => {
   await app.start();
@@ -156,27 +107,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
     
     const quizTitle = previousTrivia.topic;
 
-    const title = quizTitle.split(' ')
-        .map(word => word[0].toUpperCase() + word.slice(1))
-        .join(' ');
-
-    let triviaWithAnswersText = `${title} - ANSWERS\n\n`;
-
-    previousTrivia.questions.forEach((item, index) => {
-      const questionLabel = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
-      triviaWithAnswersText += `${questionLabel}: ${item.question}\n`;
-      triviaWithAnswersText += `Answer: ${item.correctAnswer}\n\n`;
-    });
-
-    let answersBlocks = [
-      {
-        'type': 'section',
-        'text': {
-          'type': 'mrkdwn',
-          'text': `\`\`\`\n${triviaWithAnswersText}\`\`\``,
-        },
-      },
-    ];
+    const answersBlocks = buildAnswersBlocks(previousTrivia);
 
     await app.client.chat.postMessage({
       channel: 'C04D6JZ0L67',  // Replace with your Trivia Channel ID
@@ -196,7 +127,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
 
   // Add this function after postLastWeeksTriviaWithAnswers
   async function postWeeklyLeaderboard(previousTrivia, options = {}) {
-    await upsertLeaderboardMessage(previousTrivia, {
+    await upsertLeaderboardMessage(app.client, previousTrivia, {
       fallbackText: `🏆 ${previousTrivia.topic} Leaderboard`,
       headingText: `🏆 **Last Week's Champions** 🏆`,
       noSubmissionsLog: 'No submissions found for leaderboard',
@@ -257,29 +188,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
 
     const quizTitle = currentTrivia.topic;
 
-    const title = quizTitle
-      .split(' ')
-      .map((word) => word[0].toUpperCase() + word.slice(1))
-      .join(' ');
-
-    let questionText = `${title}\n`;
-
-    currentTrivia.questions.forEach((item, index) => {
-      const questionLabel = item.isBonus
-        ? 'Bonus Question'
-        : `Question ${index + 1}`;
-      questionText += `\n${questionLabel}: ${item.question}\n`;
-    });
-
-    const questionBlocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `\`\`\`\n${questionText}\`\`\``,
-        },
-      },
-    ];
+    const questionBlocks = buildTriviaQuestionBlocks(currentTrivia);
 
     await app.client.chat.postMessage({
       channel: 'C04D6JZ0L67',
@@ -294,22 +203,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
         },
         ...getRequestedByBlocks(currentTrivia),
         ...questionBlocks,
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Play',
-                emoji: true,
-              },
-              style: 'primary',
-              value: 'play_button',
-              action_id: 'play',
-            },
-          ],
-        },
+        buildPlayButtonBlock(),
       ],
     });
   }
@@ -355,26 +249,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
     
     const quizTitle = currentTrivia.topic;
 
-    const title = quizTitle.split(' ')
-        .map(word => word[0].toUpperCase() + word.slice(1))
-        .join(' ');
-
-    let questionText = `${title}\n`;
-
-    currentTrivia.questions.forEach((item, index) => {
-      const questionLabel = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
-      questionText += `\n${questionLabel}: ${item.question}\n`;
-    });
-
-    let questionBlocks = [
-      {
-        'type': 'section',
-        'text': {
-          'type': 'mrkdwn',
-          'text': `\`\`\`\n${questionText}\`\`\``,
-        },
-      },
-    ];
+    const questionBlocks = buildTriviaQuestionBlocks(currentTrivia);
 
     await app.client.chat.postMessage({
       channel: 'C04D6JZ0L67',  // Replace with your Trivia Channel ID
@@ -389,109 +264,17 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
         },
         ...getRequestedByBlocks(currentTrivia),
         ...questionBlocks,
-        {
-          'type': 'actions',
-          'elements': [
-            {
-              'type': 'button',
-              'text': {
-                'type': 'plain_text',
-                'text': 'Play',
-                'emoji': true,
-              },
-              "style": "primary",
-              'value': 'play_button',
-              'action_id': 'play',
-            },
-          ],
-        },
+        buildPlayButtonBlock(),
       ],
     });
   }
-
-  // Rest of your existing code...
-  app.event('app_home_opened', async ({ event, client }) => {
-    try {
-      // Display App Home
-      await displayHome(event.user);
-    } catch (error) {
-      console.error(error);
-    }
-  });
-
-  const displayHome = async(user) => {
-    try {
-      await app.client.views.publish({
-        user_id: user,
-        view: await updateView(user)
-      });
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const updateView = async(user) => {
-    let blocks = [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "*Welcome to Thursday's Trivia!* :brain:\nTest your knowledge and compete with your colleagues in our weekly trivia game. Every Thursday, we'll have exciting new questions on various topics!"
-        }
-      },
-      {
-        type: "divider"
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "*How to Play:*\n• Wait for the trivia questions to be posted in the channel\n• Click the 'Play' button to participate\n• Answer the questions when prompted\n• See how you rank against your colleagues!"
-        }
-      },
-      {
-        type: "divider"
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "Ready to test your knowledge? Use the button below to join the current trivia game!"
-        },
-      },
-      {
-        'type': 'actions',
-        'elements': [
-          {
-            'type': 'button',
-            'text': {
-              'type': 'plain_text',
-              'text': 'Play',
-              'emoji': true,
-            },
-            'value': 'play_button',
-            'action_id': 'play',
-          },
-        ],
-      },
-    ];
-    let view = {
-      type: 'home',
-      title: {
-        type: 'plain_text',
-        text: 'Thursday\'s Trivia'
-      },
-      blocks: blocks
-    }
-    return JSON.stringify(view);
-  };
 
   app.action('play_trivia', async ({ ack, body, client, logger }) => {
     try {
       // Always acknowledge the action first
       await ack();
 
-      await playTime(body, client, logger);
+      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay});
     } catch (error) {
       console.error('Error handling play_trivia action:', error);
     }
@@ -500,104 +283,17 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
   app.action('play', async ({ack, body, client, logger}) => {
     try {
       await ack();
-      await playTime(body, client, logger);
+      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay});
     } catch (error) {
       logger.error('Error opening trivia modal:', error);
     }
   });
 })();
 
-async function playTime(body, client, logger) {
-  const userId = body.user?.id ?? body.user_id;
-
-  const trivia = !body.text
-    ? await getDefaultTriviaForPlay()
-    : await getTrivia(body.text);
-
-  let alreadyPlayed = false;
-
-  const submission = await getSubmission(userId, trivia);
-
-  if (submission) {
-    alreadyPlayed = true;
-  }
-
-  const questionsBlock = [];
-
-  trivia.questions.forEach((item, index) => {
-    const label = item.isBonus ? `Bonus Question: ${item.question}` : `Question ${index + 1}: ${item.question}`;
-    questionsBlock.push({
-      'type': 'input',
-      'block_id': `question-${index}`,
-      'label': {
-        'type': 'plain_text',
-        'text': label,
-        'emoji': true,
-      },
-      'element': {
-        'type': 'plain_text_input',
-        'action_id': `answer-${index}`,
-        'multiline': false,
-      },
-    });
-  });
-
-  if (alreadyPlayed) {
-    questionsBlock.push({
-      'type': 'rich_text',
-      'elements': [
-        {
-          'type': 'rich_text_section',
-          'elements': [
-            {
-              'type': 'text',
-              'text': 'Note: This submission will not be counted since you\'ve already played.',
-              'style': {
-                'italic': true,
-              },
-            },
-          ],
-        },
-      ],
-    });
-  }
-
-  try {
-    await client.views.open({
-      trigger_id: body.trigger_id,
-      channel_id: body.channel_id,
-      view: {
-        type: 'modal',
-        callback_id: 'trivia_view',
-        private_metadata: JSON.stringify({
-          quizDate: trivia.date,
-          channelId: body.channel?.id || body.channel_id || 'C04D6JZ0L67',
-        }),
-        title: {
-          type: 'plain_text',
-          text: `${trivia.topic.toUpperCase()}`,
-        },
-        'blocks': [
-          ...questionsBlock,
-        ],
-        submit: {
-          type: 'plain_text',
-          text: 'Submit',
-        },
-      },
-    });
-  } catch (error) {
-    logger.error(error);
-  }
-}
-
 app.view('trivia_view', async ({ ack, body, client }) => {
   await ack();
   let index = 0;
   let userSubmissions = [];
-  let regularScore = 0;
-  let bonusScore = 0;
-  let aiVerdicts = [];
 
   const userId = body.user.id;
   const metadata = body.view.private_metadata ? JSON.parse(body.view.private_metadata) : {};
@@ -611,160 +307,11 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   }
 
   const triviaDocument = await getTrivia({ date: metadata.quizDate });
-  const normalize = (s) => (s || '').trim().toLowerCase();
-  const normalizeNoSpaces = (s) => normalize(s).replace(/\s+/g, '');
-
-  const acronymFromAnswer = (text) => {
-    // Turn "JavaScript" -> "JS" by splitting camelCase + non-alphanumerics.
-    const cleaned = (text || '')
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .replace(/[^a-zA-Z0-9]+/g, ' ')
-      .trim();
-
-    if (!cleaned) return '';
-
-    const parts = cleaned.split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return '';
-
-    return parts.map((p) => (p[0] ? p[0] : '')).join('').toUpperCase();
-  };
-
-  const isNounVerbVariantMatch = (correct, user) => {
-    // Lightweight handling for common verb/noun pairs like:
-    // "Encryption" (tion) vs "Encrypting" (ing)
-    const c = normalize(correct);
-    const u = normalize(user);
-    if (!c || !u) return false;
-
-    const cHasTion = /(tion|sion|cion)$/.test(c);
-    const uHasIng = /ing$/.test(u);
-    if (cHasTion && uHasIng) {
-      const cStem = c.replace(/(tion|sion|cion)$/, '');
-      const uStem = u.replace(/ing$/, '');
-      return cStem && uStem && cStem === uStem;
-    }
-
-    const cHasIng = /ing$/.test(c);
-    const uHasTion = /(tion|sion|cion)$/.test(u);
-    if (cHasIng && uHasTion) {
-      const cStem = c.replace(/ing$/, '');
-      const uStem = u.replace(/(tion|sion|cion)$/, '');
-      return cStem && uStem && cStem === uStem;
-    }
-
-    return false;
-  };
-
-  for (let i = 0; i < userSubmissions.length; i++) {
-    const userAnswer = userSubmissions[i];
-    const correctAnswer = triviaDocument.questions[i].correctAnswer;
-    const isBonus = triviaDocument.questions[i].isBonus === true;
-
-    if (!userAnswer) {
-      aiVerdicts.push('no-answer');
-      continue;
-    }
-
-    // First try simple normalized string match
-    if (normalize(userAnswer) === normalize(correctAnswer)) {
-      if (isBonus) {
-        bonusScore++;
-      } else {
-        regularScore++;
-      }
-      aiVerdicts.push('exact');
-      continue;
-    }
-
-    // Check if correct answer contains multiple options separated by "or"
-    const correctOptions = correctAnswer.split(/\s+or\s+/i).map(option => option.trim());
-    const userAnswerNormalized = normalize(userAnswer);
-    const userAnswerNormalizedNoSpaces = normalizeNoSpaces(userAnswer);
-
-    let isCorrectOption = false;
-    for (const option of correctOptions) {
-      const optionNormalized = normalize(option);
-      const optionNormalizedNoSpaces = normalizeNoSpaces(option);
-
-      // Exact (including "or" options)
-      if (userAnswerNormalized === optionNormalized) {
-        isCorrectOption = true;
-        break;
-      }
-
-      // Accept acronym/initialism when canonical answer is expanded (e.g., JS for JavaScript)
-      const optionAcronym = acronymFromAnswer(option);
-      if (optionAcronym && userAnswerNormalizedNoSpaces === optionAcronym.toLowerCase()) {
-        isCorrectOption = true;
-        break;
-      }
-
-      // Accept very common grammatical variants (e.g., Encryption vs Encrypting)
-      if (isNounVerbVariantMatch(optionNormalizedNoSpaces, userAnswerNormalizedNoSpaces)) {
-        isCorrectOption = true;
-        break;
-      }
-    }
-
-    if (isCorrectOption) {
-      if (isBonus) {
-        bonusScore++;
-      } else {
-        regularScore++;
-      }
-      aiVerdicts.push('exact');
-      continue;
-    }
-
-    // Use AI to judge if the answer is correct (allowing minor spelling errors, but not wrong facts)
-    try {
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1-nano',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a strict grader for short-answer trivia. ' +
-              'Given a question, the canonical correct answer, and a user answer, decide if the user answer is truly correct.\n' +
-              '- If the correct answer contains "or", any of the options listed is acceptable.\n' +
-              '- Treat acronyms/initialisms as correct when they match the initial letters of the canonical answer.\n' +
-              '- Treat common grammatical variants (e.g., noun vs gerund) as correct when the base meaning is the same.\n' +
-              '- Treat minor spelling errors or very small wording differences as CORRECT if they clearly refer to the same factual answer.\n' +
-              '- Case differences (Medal Collection vs medal collection) should be treated as CORRECT.\n' +
-              '- If the user names a different place/person/thing (e.g. "Brazil" as the capital of Brazil) it must be marked INCORRECT.\n' +
-              '- Respond with exactly one word: "correct" or "incorrect". No explanations.',
-          },
-          {
-            role: 'user',
-            content:
-              `Question: ${triviaDocument.questions[i].question}\n` +
-              `Correct answer: ${correctAnswer}\n` +
-              `User answer: ${userAnswer}`,
-          },
-        ],
-      });
-
-      const verdictRaw = completion.choices[0].message.content.trim().toLowerCase();
-      const verdictWord = verdictRaw.split(/\s+/)[0]; // use the first token only
-      let verdict = 'incorrect';
-      if (verdictWord === 'correct') {
-        verdict = 'correct';
-      }
-
-      aiVerdicts.push(verdict);
-
-      if (verdict === 'correct') {
-        if (isBonus) {
-          bonusScore++;
-        } else {
-          regularScore++;
-        }
-      }
-    } catch (e) {
-      console.error('Error grading answer with AI', e);
-      aiVerdicts.push('error');
-    }
-  }
+  const {regularScore, bonusScore, aiVerdicts} = await gradeTriviaSubmission(
+    openai,
+    triviaDocument,
+    userSubmissions
+  );
 
   const submission = await getSubmission(userId, triviaDocument);
   const alreadyPlayed = Boolean(submission);
@@ -827,7 +374,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
     if (stored) {
       try {
-        await upsertLeaderboardMessage(triviaDocument, {
+        await upsertLeaderboardMessage(client, triviaDocument, {
           channel: responseChannelId,
           fallbackText: `🏆 ${triviaDocument.topic} Leaderboard`,
           headingText: isDailyTestCronEnabled()
@@ -847,294 +394,3 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     blocks: questionBlocks,
   });
 });
-
-function getTriviaDate(trivia) {
-  if (trivia?.date?.seconds) {
-    return fromFirestoreTimestamp(trivia.date);
-  }
-  if (trivia?.date instanceof Date) {
-    return trivia.date;
-  }
-  return trivia?.date ? new Date(trivia.date) : null;
-}
-
-function getLocalDateKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getLeaderboardMessageId(channel, trivia) {
-  const triviaDate = getTriviaDate(trivia);
-  const dateKey = triviaDate ? getLocalDateKey(triviaDate) : 'unknown-date';
-  return `${channel}-${dateKey}`;
-}
-
-function getCombinedScore(submission) {
-  return getNumericScore(submission.user_score) + getNumericScore(submission.bonus_score);
-}
-
-function buildProgressBar(count, total, width = 12) {
-  if (total <= 0) {
-    return '▱'.repeat(width);
-  }
-
-  const filled = count > 0
-    ? Math.max(1, Math.min(width, Math.round((count / total) * width)))
-    : 0;
-  return `${'▰'.repeat(filled)}${'▱'.repeat(width - filled)}`;
-}
-
-function formatUserList(entries, maxUsers = 5) {
-  if (entries.length === 0) {
-    return '-';
-  }
-
-  const users = entries.slice(0, maxUsers).map((entry) => `<@${entry.user_id}>`);
-  const remaining = entries.length - maxUsers;
-  return remaining > 0 ? `${users.join(', ')} +${remaining} more` : users.join(', ');
-}
-
-function formatLeaderboardScore(entry) {
-  return `${getCombinedScore(entry)}/${entry.total_questions}`;
-}
-
-function buildTopThreeText(leaderboardData) {
-  const medals = ['🥇', '🥈', '🥉'];
-  const topThree = leaderboardData.slice(0, 3);
-
-  if (topThree.length === 0) {
-    return '_No submissions yet._';
-  }
-
-  return topThree
-    .map((entry, index) => `${medals[index]} ${index + 1}. <@${entry.user_id}> - ${formatLeaderboardScore(entry)}`)
-    .join('\n');
-}
-
-function buildScoreDistributionText(leaderboardData, regularQuestions, bonusQuestions) {
-  const totalPlayers = leaderboardData.length;
-  const maxPossibleScore = regularQuestions + bonusQuestions;
-  const buckets = new Map();
-
-  for (let score = maxPossibleScore; score >= 0; score--) {
-    buckets.set(score, []);
-  }
-
-  leaderboardData.forEach((entry) => {
-    const score = getCombinedScore(entry);
-    if (!buckets.has(score)) {
-      buckets.set(score, []);
-    }
-    buckets.get(score).push(entry);
-  });
-
-  return [...buckets.entries()]
-    .sort(([a], [b]) => b - a)
-    .map(([score, entries]) => {
-      const percent = totalPlayers > 0 ? Math.round((entries.length / totalPlayers) * 100) : 0;
-      const progressBar = buildProgressBar(entries.length, totalPlayers);
-      const scoreLabel = `${score}/${regularQuestions}`.padStart(3, ' ');
-      const percentLabel = `${percent}%`.padStart(4, ' ');
-      const countLabel = `(${entries.length})`.padStart(4, ' ');
-      return `\`${scoreLabel}\` \`${percentLabel}\` \`${countLabel}\` \`${progressBar}\` - ${formatUserList(entries)}`;
-    })
-    .join('\n');
-}
-
-function buildLeaderboardBlocks(trivia, leaderboardData, headingText) {
-  const regularQuestions = trivia.questions?.filter(q => !q.isBonus).length || leaderboardData[0]?.total_questions || 0;
-  const bonusQuestions = trivia.questions?.filter(q => q.isBonus).length || leaderboardData[0]?.bonus_questions || 0;
-  const topic = trivia.topic?.toUpperCase() || 'TRIVIA';
-
-  return [
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: headingText,
-      },
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*${topic} - TOP 3*\n${buildTopThreeText(leaderboardData)}`,
-      },
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*Score Distribution*\n${buildScoreDistributionText(leaderboardData, regularQuestions, bonusQuestions)}`,
-      },
-    },
-  ];
-}
-
-async function getStoredLeaderboardMessage(channel, trivia) {
-  const leaderboardMessageRef = doc(
-    firebaseDatabase,
-    'leaderboard_messages',
-    getLeaderboardMessageId(channel, trivia)
-  );
-  const snapshot = await getDoc(leaderboardMessageRef);
-  return {
-    ref: leaderboardMessageRef,
-    data: snapshot.exists() ? snapshot.data() : null,
-  };
-}
-
-async function upsertLeaderboardMessage(trivia, options = {}) {
-  if (!trivia || !trivia.date) {
-    console.log('No trivia data for leaderboard');
-    return;
-  }
-
-  const channel = options.channel || 'C04D6JZ0L67';
-  const leaderboardData = await getWeeklyLeaderboard(trivia);
-  if (!leaderboardData || leaderboardData.length === 0) {
-    console.log(options.noSubmissionsLog || 'No submissions found for leaderboard');
-    return;
-  }
-
-  const storedMessage = await getStoredLeaderboardMessage(channel, trivia);
-  const fallbackText = storedMessage.data?.fallbackText || options.fallbackText || `🏆 ${trivia.topic} Leaderboard`;
-  const headingText = storedMessage.data?.headingText || options.headingText || `🏆 **Leaderboard** 🏆`;
-  const blocks = buildLeaderboardBlocks(trivia, leaderboardData, headingText);
-
-  let messageTs = storedMessage.data?.ts;
-  if (messageTs) {
-    try {
-      await app.client.chat.update({
-        channel,
-        ts: messageTs,
-        text: fallbackText,
-        blocks,
-      });
-    } catch (error) {
-      console.warn('Unable to update stored leaderboard message; posting a new one.', error);
-      messageTs = null;
-    }
-  }
-
-  if (!messageTs) {
-    const response = await app.client.chat.postMessage({
-      channel,
-      text: fallbackText,
-      blocks,
-    });
-    messageTs = response.ts;
-  }
-
-  await setDoc(storedMessage.ref, {
-    channel,
-    ts: messageTs,
-    topic: trivia.topic,
-    date: getTriviaDate(trivia),
-    fallbackText,
-    headingText,
-    updatedAt: new Date(),
-  }, {merge: true});
-}
-
-function getNumericScore(score) {
-  const value = Number(score);
-  return Number.isFinite(value) ? value : 0;
-}
-
-function getSubmissionTimeMillis(submission) {
-  const time = submission.time;
-
-  if (Number.isFinite(Number(time))) {
-    return Number(time);
-  }
-
-  if (time?.seconds) {
-    return (time.seconds * 1000) + Math.floor((time.nanoseconds || 0) / 1000000);
-  }
-
-  if (time instanceof Date) {
-    return time.getTime();
-  }
-
-  if (typeof time === 'string') {
-    const parsed = Date.parse(time);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return Number.MAX_SAFE_INTEGER;
-}
-
-export async function getWeeklyLeaderboard(trivia) {
-  try {
-    // Convert trivia date to match submission date format
-    const triviaDate = trivia.date?.seconds 
-      ? fromFirestoreTimestamp(trivia.date) 
-      : (trivia.date instanceof Date ? trivia.date : new Date(trivia.date));
-    
-    const startOfDay = new Date(triviaDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    
-    const endOfDay = new Date(triviaDate);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const submissionsRef = collection(firebaseDatabase, 'submissions');
-    const leaderboardQuery = query(
-      submissionsRef,
-      where('date', '>=', startOfDay),
-      where('date', '<=', endOfDay)
-    );
-
-    const snapshot = await getDocs(leaderboardQuery);
-    const submissions = [];
-    
-    snapshot.forEach(doc => {
-      submissions.push(doc.data());
-    });
-
-    // Calculate total questions for scoring context
-    const regularQuestions = trivia.questions?.filter(q => !q.isBonus).length || 0;
-    const bonusQuestions = trivia.questions?.filter(q => q.isBonus).length || 0;
-
-    // Sort by score, with fastest submitter winning ties between perfect scores.
-    const sortedSubmissions = submissions
-      .map(submission => ({
-        ...submission,
-        total_questions: regularQuestions,
-        bonus_questions: bonusQuestions
-      }))
-      .sort((a, b) => {
-        const aRegularScore = getNumericScore(a.user_score);
-        const bRegularScore = getNumericScore(b.user_score);
-        const regularScoreDifference = bRegularScore - aRegularScore;
-        if (regularScoreDifference !== 0) {
-          return regularScoreDifference;
-        }
-
-        const aHasPerfectRegularScore = regularQuestions > 0 && aRegularScore >= regularQuestions;
-        const bHasPerfectRegularScore = regularQuestions > 0 && bRegularScore >= regularQuestions;
-        if (aHasPerfectRegularScore && bHasPerfectRegularScore) {
-          const submissionTimeDifference = getSubmissionTimeMillis(a) - getSubmissionTimeMillis(b);
-          if (submissionTimeDifference !== 0) {
-            return submissionTimeDifference;
-          }
-        }
-
-        const bonusScoreDifference = getNumericScore(b.bonus_score) - getNumericScore(a.bonus_score);
-        if (bonusScoreDifference !== 0) {
-          return bonusScoreDifference;
-        }
-
-        return getSubmissionTimeMillis(a) - getSubmissionTimeMillis(b);
-      });
-
-    return sortedSubmissions;
-  } catch (error) {
-    console.error('Error getting weekly leaderboard:', error);
-    return [];
-  }
-}
