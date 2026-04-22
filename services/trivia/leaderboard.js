@@ -30,33 +30,94 @@ function getNumericScore(score) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function getCombinedScore(submission) {
-  return getNumericScore(submission.user_score) + getNumericScore(submission.bonus_score);
-}
-
-function getSubmissionTimeMillis(submission) {
-  const time = submission.time;
-
-  if (Number.isFinite(Number(time))) {
-    return Number(time);
+function getTimestampMillis(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
   }
 
-  if (time?.seconds) {
-    return (time.seconds * 1000) + Math.floor((time.nanoseconds || 0) / 1000000);
+  if (value?.seconds) {
+    return (value.seconds * 1000) + Math.floor((value.nanoseconds || 0) / 1000000);
   }
 
-  if (time instanceof Date) {
-    return time.getTime();
+  if (value instanceof Date) {
+    return value.getTime();
   }
 
-  if (typeof time === 'string') {
-    const parsed = Date.parse(time);
+  if (Number.isFinite(Number(value))) {
+    const numeric = Number(value);
+    return numeric < 10000000000 ? numeric * 1000 : numeric;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
     if (Number.isFinite(parsed)) {
       return parsed;
     }
   }
 
-  return Number.MAX_SAFE_INTEGER;
+  return null;
+}
+
+function getCombinedScore(submission) {
+  return getNumericScore(submission.user_score) + getNumericScore(submission.bonus_score);
+}
+
+function getSubmissionTimeMillis(submission) {
+  return getTimestampMillis(submission.time) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function getTriviaPostedAtMillis(trivia) {
+  return getTimestampMillis(trivia.postedAt ?? trivia.postedMessageTs);
+}
+
+export function getTimeToScoreForSubmission(trivia, submittedAt = Date.now()) {
+  const postedAt = getTriviaPostedAtMillis(trivia);
+  const submittedAtMillis = getTimestampMillis(submittedAt);
+
+  if (!postedAt || !submittedAtMillis) {
+    return null;
+  }
+
+  const elapsed = submittedAtMillis - postedAt;
+  return elapsed >= 0 ? elapsed : null;
+}
+
+function getTimeToScoreMillis(submission, trivia) {
+  const storedTimeToScore = Number(submission.time_to_score_ms ?? submission.timeToScoreMs);
+  if (Number.isFinite(storedTimeToScore) && storedTimeToScore > 0) {
+    return storedTimeToScore;
+  }
+
+  return getTimeToScoreForSubmission(trivia, getSubmissionTimeMillis(submission));
+}
+
+function getComparableTimeToScoreMillis(submission, trivia) {
+  return getTimeToScoreMillis(submission, trivia) ?? getSubmissionTimeMillis(submission);
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms)) {
+    return 'time unavailable';
+  }
+
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 1) {
+    return '<1s';
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${seconds}s`;
 }
 
 function buildProgressBar(count, total, width = 12) {
@@ -80,11 +141,12 @@ function formatUserList(entries, maxUsers = 5) {
   return remaining > 0 ? `${users.join(', ')} +${remaining} more` : users.join(', ');
 }
 
-function formatLeaderboardScore(entry) {
-  return `${getCombinedScore(entry)}/${entry.total_questions}`;
+function formatLeaderboardScore(entry, trivia) {
+  const timeToScore = getTimeToScoreMillis(entry, trivia);
+  return `${getCombinedScore(entry)}/${entry.total_questions} in ${formatDuration(timeToScore)}`;
 }
 
-function buildTopThreeText(leaderboardData) {
+function buildTopThreeText(leaderboardData, trivia) {
   const medals = ['🥇', '🥈', '🥉'];
   const topThree = leaderboardData.slice(0, 3);
 
@@ -93,7 +155,7 @@ function buildTopThreeText(leaderboardData) {
   }
 
   return topThree
-    .map((entry, index) => `${medals[index]} ${index + 1}. <@${entry.user_id}> - ${formatLeaderboardScore(entry)}`)
+    .map((entry, index) => `${medals[index]} ${index + 1}. <@${entry.user_id}> - ${formatLeaderboardScore(entry, trivia)}`)
     .join('\n');
 }
 
@@ -144,7 +206,7 @@ function buildLeaderboardBlocks(trivia, leaderboardData, headingText) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*${topic} - TOP 3*\n${buildTopThreeText(leaderboardData)}`,
+        text: `*${topic} - TOP 3*\n${buildTopThreeText(leaderboardData, trivia)}`,
       },
     },
     {
@@ -256,25 +318,15 @@ export async function getWeeklyLeaderboard(trivia) {
         bonus_questions: bonusQuestions
       }))
       .sort((a, b) => {
-        const aRegularScore = getNumericScore(a.user_score);
-        const bRegularScore = getNumericScore(b.user_score);
-        const regularScoreDifference = bRegularScore - aRegularScore;
-        if (regularScoreDifference !== 0) {
-          return regularScoreDifference;
+        const scoreDifference = getCombinedScore(b) - getCombinedScore(a);
+        if (scoreDifference !== 0) {
+          return scoreDifference;
         }
 
-        const aHasPerfectRegularScore = regularQuestions > 0 && aRegularScore >= regularQuestions;
-        const bHasPerfectRegularScore = regularQuestions > 0 && bRegularScore >= regularQuestions;
-        if (aHasPerfectRegularScore && bHasPerfectRegularScore) {
-          const submissionTimeDifference = getSubmissionTimeMillis(a) - getSubmissionTimeMillis(b);
-          if (submissionTimeDifference !== 0) {
-            return submissionTimeDifference;
-          }
-        }
-
-        const bonusScoreDifference = getNumericScore(b.bonus_score) - getNumericScore(a.bonus_score);
-        if (bonusScoreDifference !== 0) {
-          return bonusScoreDifference;
+        const timeToScoreDifference =
+          getComparableTimeToScoreMillis(a, trivia) - getComparableTimeToScoreMillis(b, trivia);
+        if (timeToScoreDifference !== 0) {
+          return timeToScoreDifference;
         }
 
         return getSubmissionTimeMillis(a) - getSubmissionTimeMillis(b);

@@ -7,6 +7,7 @@ import {
   getTrivia,
   getNextTrivia,
   getTriviaForCalendarDay,
+  recordTriviaPost,
   store as storeQuiz,
 } from './models/quiz/quiz.js';
 import {allCommand} from "./commands/all.js";
@@ -17,7 +18,7 @@ import {getSubmission, store} from "./models/submission/submission.js";
 import {getNextThursday, getStartOfDay} from './services/utils/datetime.js';
 import {generateQuestionsForTopic} from './services/trivia/generateQuiz.js';
 import {gradeTriviaSubmission} from './services/trivia/grader.js';
-import {upsertLeaderboardMessage} from './services/trivia/leaderboard.js';
+import {getTimeToScoreForSubmission, upsertLeaderboardMessage} from './services/trivia/leaderboard.js';
 import {openTriviaModal} from './services/trivia/playModal.js';
 import {
   getDefaultTriviaForPlay,
@@ -46,6 +47,7 @@ const app = new App({
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const TRIVIA_CHANNEL_ID = 'C04D6JZ0L67';
 
 allCommand(app);
 answersCommand(app);
@@ -110,7 +112,7 @@ registerHomeView(app);
     const answersBlocks = buildAnswersBlocks(previousTrivia);
 
     await app.client.chat.postMessage({
-      channel: 'C04D6JZ0L67',  // Replace with your Trivia Channel ID
+      channel: TRIVIA_CHANNEL_ID,  // Replace with your Trivia Channel ID
       text: `*${quizTitle} - ANSWERS*`,
       blocks: [
         {
@@ -190,8 +192,8 @@ registerHomeView(app);
 
     const questionBlocks = buildTriviaQuestionBlocks(currentTrivia);
 
-    await app.client.chat.postMessage({
-      channel: 'C04D6JZ0L67',
+    const message = await app.client.chat.postMessage({
+      channel: TRIVIA_CHANNEL_ID,
       text: `*${quizTitle}* (daily test)`,
       blocks: [
         {
@@ -205,6 +207,10 @@ registerHomeView(app);
         ...questionBlocks,
         buildPlayButtonBlock(),
       ],
+    });
+    await recordTriviaPost(currentTrivia, {
+      channel: TRIVIA_CHANNEL_ID,
+      ts: message.ts,
     });
   }
 
@@ -251,8 +257,8 @@ registerHomeView(app);
 
     const questionBlocks = buildTriviaQuestionBlocks(currentTrivia);
 
-    await app.client.chat.postMessage({
-      channel: 'C04D6JZ0L67',  // Replace with your Trivia Channel ID
+    const message = await app.client.chat.postMessage({
+      channel: TRIVIA_CHANNEL_ID,  // Replace with your Trivia Channel ID
       text: `*${quizTitle}*`,
       blocks: [
         {
@@ -266,6 +272,10 @@ registerHomeView(app);
         ...questionBlocks,
         buildPlayButtonBlock(),
       ],
+    });
+    await recordTriviaPost(currentTrivia, {
+      channel: TRIVIA_CHANNEL_ID,
+      ts: message.ts,
     });
   }
 
@@ -297,7 +307,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
   const userId = body.user.id;
   const metadata = body.view.private_metadata ? JSON.parse(body.view.private_metadata) : {};
-  const responseChannelId = metadata.channelId || 'C04D6JZ0L67';
+  const responseChannelId = metadata.channelId || TRIVIA_CHANNEL_ID;
 
   // Extract free-text answers from modal state
   for (const property in body.view.state.values) {
@@ -363,13 +373,16 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   const quizDate = new Date(triviaDocument.date.seconds * 1000); // Quiz date as Date object
 
   if (!alreadyPlayed) {
+    const submittedAt = Date.now();
+    const timeToScoreMs = getTimeToScoreForSubmission(triviaDocument, submittedAt);
     const stored = await store({
       user_id: body.user.id,
       user_score: regularScore,
       bonus_score: bonusScore,
       topic: triviaDocument.topic,
       date: quizDate,
-      time: Date.now()
+      time: submittedAt,
+      ...(timeToScoreMs !== null ? {time_to_score_ms: timeToScoreMs} : {})
     });
 
     if (stored) {
