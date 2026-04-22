@@ -14,6 +14,56 @@ function normalizeNoSpaces(s) {
   return normalize(s).replace(/\s+/g, '');
 }
 
+const QUESTION_RESTATEMENT_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'been',
+  'being',
+  'by',
+  'for',
+  'from',
+  'has',
+  'have',
+  'he',
+  'her',
+  'his',
+  'how',
+  'in',
+  'is',
+  'it',
+  'its',
+  'name',
+  'of',
+  'often',
+  'on',
+  'one',
+  'or',
+  'she',
+  'that',
+  'the',
+  'these',
+  'this',
+  'those',
+  'to',
+  'used',
+  'was',
+  'were',
+  'what',
+  'when',
+  'where',
+  'which',
+  'who',
+  'whom',
+  'whose',
+  'why',
+  'with',
+]);
+
 function stripBracketedText(text) {
   let cleaned = String(text || '');
   let previous;
@@ -30,6 +80,43 @@ function stripBracketedText(text) {
   return cleaned;
 }
 
+function stemToken(token) {
+  if (token.length > 5 && token.endsWith('ies')) {
+    return `${token.slice(0, -3)}y`;
+  }
+
+  if (token.length > 5 && token.endsWith('ing')) {
+    return token.slice(0, -3);
+  }
+
+  if (token.length > 4 && token.endsWith('ed')) {
+    return token.slice(0, -2);
+  }
+
+  if (token.length > 4 && token.endsWith('es')) {
+    return token.slice(0, -2);
+  }
+
+  if (token.length > 3 && token.endsWith('s')) {
+    return token.slice(0, -1);
+  }
+
+  return token;
+}
+
+function getSignificantTokens(text) {
+  const normalized = normalize(text);
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized
+    .split(/\s+/)
+    .filter(token => token.length > 1 && !QUESTION_RESTATEMENT_STOPWORDS.has(token))
+    .map(stemToken)
+    .filter(token => token.length > 1 && !QUESTION_RESTATEMENT_STOPWORDS.has(token));
+}
+
 function isSafeNormalizedMatch(left, right) {
   const leftNormalized = normalize(left);
   const rightNormalized = normalize(right);
@@ -42,6 +129,30 @@ function isSafeNormalizedMatch(left, right) {
   const rawMatch = String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
 
   return compact.length > 1 || rawMatch;
+}
+
+function answerContainsCorrectAnswer(userAnswer, correctAnswer) {
+  const userAnswerNormalized = normalize(userAnswer);
+  const userAnswerNormalizedNoSpaces = normalizeNoSpaces(userAnswer);
+  const correctOptions = String(correctAnswer || '').split(/\s+or\s+/i).map(option => option.trim());
+
+  for (const option of correctOptions) {
+    const optionNormalized = normalize(option);
+    const optionNormalizedNoSpaces = normalizeNoSpaces(option);
+    if (!optionNormalized) {
+      continue;
+    }
+
+    if (` ${userAnswerNormalized} `.includes(` ${optionNormalized} `)) {
+      return true;
+    }
+
+    if (optionNormalizedNoSpaces.length > 2 && userAnswerNormalizedNoSpaces.includes(optionNormalizedNoSpaces)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function acronymFromAnswer(text) {
@@ -120,6 +231,38 @@ export function isCorrectLocalMatch(userAnswer, correctAnswer) {
   return false;
 }
 
+export function isQuestionRestatementAnswer(questionText, correctAnswer, userAnswer) {
+  const questionNormalized = normalize(questionText);
+  const userAnswerNormalized = normalize(userAnswer);
+
+  if (!questionNormalized || !userAnswerNormalized) {
+    return false;
+  }
+
+  if (answerContainsCorrectAnswer(userAnswer, correctAnswer)) {
+    return false;
+  }
+
+  const userTokens = getSignificantTokens(userAnswer);
+  if (userTokens.length === 0) {
+    return false;
+  }
+
+  if (` ${questionNormalized} `.includes(` ${userAnswerNormalized} `)) {
+    return true;
+  }
+
+  const questionTokens = new Set(getSignificantTokens(questionText));
+  const overlappingTokens = userTokens.filter(token => questionTokens.has(token));
+  const overlapRatio = overlappingTokens.length / userTokens.length;
+
+  if (userTokens.length >= 3 && overlapRatio >= 0.65) {
+    return true;
+  }
+
+  return userTokens.length >= 2 && overlapRatio === 1 && userAnswerNormalized.length >= 12;
+}
+
 async function gradeWithAi(openai, question, correctAnswer, userAnswer) {
   const completion = await openai.chat.completions.create({
     model: 'gpt-4.1-nano',
@@ -134,6 +277,7 @@ async function gradeWithAi(openai, question, correctAnswer, userAnswer) {
           '- Treat common grammatical variants (e.g., noun vs gerund) as correct when the base meaning is the same.\n' +
           '- Treat minor spelling errors or very small wording differences as CORRECT if they clearly refer to the same factual answer.\n' +
           '- Ignore punctuation, special characters, and extra descriptive text in parentheses/brackets when the factual answer is otherwise the same.\n' +
+          '- If the user mostly repeats or paraphrases the question instead of naming the answer, mark it INCORRECT even when the real answer can be inferred from the question.\n' +
           '- Case differences (Medal Collection vs medal collection) should be treated as CORRECT.\n' +
           '- If the user names a different place/person/thing (e.g. "Brazil" as the capital of Brazil) it must be marked INCORRECT.\n' +
           '- Respond with exactly one word: "correct" or "incorrect". No explanations.',
@@ -174,6 +318,11 @@ export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissi
     if (isCorrectLocalMatch(userAnswer, correctAnswer)) {
       scoreCorrectAnswer(isBonus, scores);
       aiVerdicts.push('exact');
+      continue;
+    }
+
+    if (isQuestionRestatementAnswer(question.question, correctAnswer, userAnswer)) {
+      aiVerdicts.push('question-copy');
       continue;
     }
 
