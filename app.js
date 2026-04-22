@@ -14,7 +14,7 @@ import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
 import {requestCommand} from './commands/request.js';
 import {getSubmission, store} from "./models/submission/submission.js";
-import {collection, getDocs, query, where} from 'firebase/firestore';
+import {collection, doc, getDoc, getDocs, query, setDoc, where} from 'firebase/firestore';
 import firebaseDatabase from './services/firebase/databaseConnection.js';
 import {fromFirestoreTimestamp, getNextThursday, getStartOfDay} from './services/utils/datetime.js';
 import {generateQuestionsForTopic} from './services/trivia/generateQuiz.js';
@@ -196,53 +196,11 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
 
   // Add this function after postLastWeeksTriviaWithAnswers
   async function postWeeklyLeaderboard(previousTrivia, options = {}) {
-    if (!previousTrivia || !previousTrivia.date) {
-      console.log('No trivia data for leaderboard');
-      return;
-    }
-
-    const {
-      fallbackText = `🏆 ${previousTrivia.topic} Leaderboard`,
-      headingText = `🏆 **Last Week's Champions** 🏆`,
-      noSubmissionsLog = 'No submissions found for leaderboard',
-    } = options;
-
-    const leaderboardData = await getWeeklyLeaderboard(previousTrivia);
-    
-    if (!leaderboardData || leaderboardData.length === 0) {
-      console.log(noSubmissionsLog);
-      return;
-    }
-
-    let leaderboardText = `${previousTrivia.topic.toUpperCase()} - LEADERBOARD\n\n`;
-    
-    leaderboardData.forEach((entry, index) => {
-      const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
-      const bonusText = entry.bonus_score > 0 ? ` (+${entry.bonus_score} bonus)` : '';
-      leaderboardText += `${medal} ${index + 1}. <@${entry.user_id}>: ${entry.user_score}/${entry.total_questions}${bonusText}\n`;
-    });
-
-    const leaderboardBlocks = [
-      {
-        'type': 'section',
-        'text': {
-          'type': 'mrkdwn',
-          'text': headingText,
-        },
-      },
-      {
-        'type': 'section',
-        'text': {
-          'type': 'mrkdwn',
-          'text': `\`\`\`\n${leaderboardText}\`\`\``,
-        },
-      },
-    ];
-
-    await app.client.chat.postMessage({
-      channel: 'C04D6JZ0L67',
-      text: fallbackText,
-      blocks: leaderboardBlocks,
+    await upsertLeaderboardMessage(previousTrivia, {
+      fallbackText: `🏆 ${previousTrivia.topic} Leaderboard`,
+      headingText: `🏆 **Last Week's Champions** 🏆`,
+      noSubmissionsLog: 'No submissions found for leaderboard',
+      ...options,
     });
   }
 
@@ -257,7 +215,7 @@ requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
 
     await postWeeklyLeaderboard(currentTrivia, {
       fallbackText: `🧪 ${currentTrivia.topic} Test Leaderboard`,
-      headingText: `🧪 **Today's Test Leaderboard** 🧪`,
+      headingText: `🧪 *Today's Test Leaderboard* 🧪`,
       noSubmissionsLog: '[daily test] No submissions found for test leaderboard',
     });
   }
@@ -643,6 +601,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
   const userId = body.user.id;
   const metadata = body.view.private_metadata ? JSON.parse(body.view.private_metadata) : {};
+  const responseChannelId = metadata.channelId || 'C04D6JZ0L67';
 
   // Extract free-text answers from modal state
   for (const property in body.view.state.values) {
@@ -857,7 +816,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   const quizDate = new Date(triviaDocument.date.seconds * 1000); // Quiz date as Date object
 
   if (!alreadyPlayed) {
-    await store({
+    const stored = await store({
       user_id: body.user.id,
       user_score: regularScore,
       bonus_score: bonusScore,
@@ -865,15 +824,220 @@ app.view('trivia_view', async ({ ack, body, client }) => {
       date: quizDate,
       time: Date.now()
     });
+
+    if (stored) {
+      try {
+        await upsertLeaderboardMessage(triviaDocument, {
+          channel: responseChannelId,
+          fallbackText: `🏆 ${triviaDocument.topic} Leaderboard`,
+          headingText: isDailyTestCronEnabled()
+            ? `🧪 *Today's Test Leaderboard* 🧪`
+            : `🏆 *Leaderboard* 🏆`,
+        });
+      } catch (error) {
+        console.error('Error updating leaderboard after submission:', error);
+      }
+    }
   }
 
   await client.chat.postEphemeral({
     text: 'Thanks for Playing! :tada:',
-    channel: body.view.private_metadata ? JSON.parse(body.view.private_metadata).channelId || 'C04D6JZ0L67' : 'C04D6JZ0L67',
+    channel: responseChannelId,
     user: body.user.id,
     blocks: questionBlocks,
   });
 });
+
+function getTriviaDate(trivia) {
+  if (trivia?.date?.seconds) {
+    return fromFirestoreTimestamp(trivia.date);
+  }
+  if (trivia?.date instanceof Date) {
+    return trivia.date;
+  }
+  return trivia?.date ? new Date(trivia.date) : null;
+}
+
+function getLocalDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getLeaderboardMessageId(channel, trivia) {
+  const triviaDate = getTriviaDate(trivia);
+  const dateKey = triviaDate ? getLocalDateKey(triviaDate) : 'unknown-date';
+  return `${channel}-${dateKey}`;
+}
+
+function getCombinedScore(submission) {
+  return getNumericScore(submission.user_score) + getNumericScore(submission.bonus_score);
+}
+
+function buildProgressBar(count, total, width = 12) {
+  if (total <= 0) {
+    return '▱'.repeat(width);
+  }
+
+  const filled = count > 0
+    ? Math.max(1, Math.min(width, Math.round((count / total) * width)))
+    : 0;
+  return `${'▰'.repeat(filled)}${'▱'.repeat(width - filled)}`;
+}
+
+function formatUserList(entries, maxUsers = 5) {
+  if (entries.length === 0) {
+    return '-';
+  }
+
+  const users = entries.slice(0, maxUsers).map((entry) => `<@${entry.user_id}>`);
+  const remaining = entries.length - maxUsers;
+  return remaining > 0 ? `${users.join(', ')} +${remaining} more` : users.join(', ');
+}
+
+function formatLeaderboardScore(entry) {
+  return `${getCombinedScore(entry)}/${entry.total_questions}`;
+}
+
+function buildTopThreeText(leaderboardData) {
+  const medals = ['🥇', '🥈', '🥉'];
+  const topThree = leaderboardData.slice(0, 3);
+
+  if (topThree.length === 0) {
+    return '_No submissions yet._';
+  }
+
+  return topThree
+    .map((entry, index) => `${medals[index]} ${index + 1}. <@${entry.user_id}> - ${formatLeaderboardScore(entry)}`)
+    .join('\n');
+}
+
+function buildScoreDistributionText(leaderboardData, regularQuestions, bonusQuestions) {
+  const totalPlayers = leaderboardData.length;
+  const maxPossibleScore = regularQuestions + bonusQuestions;
+  const buckets = new Map();
+
+  for (let score = maxPossibleScore; score >= 0; score--) {
+    buckets.set(score, []);
+  }
+
+  leaderboardData.forEach((entry) => {
+    const score = getCombinedScore(entry);
+    if (!buckets.has(score)) {
+      buckets.set(score, []);
+    }
+    buckets.get(score).push(entry);
+  });
+
+  return [...buckets.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([score, entries]) => {
+      const percent = totalPlayers > 0 ? Math.round((entries.length / totalPlayers) * 100) : 0;
+      const progressBar = buildProgressBar(entries.length, totalPlayers);
+      const scoreLabel = `${score}/${regularQuestions}`.padStart(3, ' ');
+      const percentLabel = `${percent}%`.padStart(4, ' ');
+      const countLabel = `(${entries.length})`.padStart(4, ' ');
+      return `\`${scoreLabel}\` \`${percentLabel}\` \`${countLabel}\` \`${progressBar}\` - ${formatUserList(entries)}`;
+    })
+    .join('\n');
+}
+
+function buildLeaderboardBlocks(trivia, leaderboardData, headingText) {
+  const regularQuestions = trivia.questions?.filter(q => !q.isBonus).length || leaderboardData[0]?.total_questions || 0;
+  const bonusQuestions = trivia.questions?.filter(q => q.isBonus).length || leaderboardData[0]?.bonus_questions || 0;
+  const topic = trivia.topic?.toUpperCase() || 'TRIVIA';
+
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: headingText,
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*${topic} - TOP 3*\n${buildTopThreeText(leaderboardData)}`,
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Score Distribution*\n${buildScoreDistributionText(leaderboardData, regularQuestions, bonusQuestions)}`,
+      },
+    },
+  ];
+}
+
+async function getStoredLeaderboardMessage(channel, trivia) {
+  const leaderboardMessageRef = doc(
+    firebaseDatabase,
+    'leaderboard_messages',
+    getLeaderboardMessageId(channel, trivia)
+  );
+  const snapshot = await getDoc(leaderboardMessageRef);
+  return {
+    ref: leaderboardMessageRef,
+    data: snapshot.exists() ? snapshot.data() : null,
+  };
+}
+
+async function upsertLeaderboardMessage(trivia, options = {}) {
+  if (!trivia || !trivia.date) {
+    console.log('No trivia data for leaderboard');
+    return;
+  }
+
+  const channel = options.channel || 'C04D6JZ0L67';
+  const leaderboardData = await getWeeklyLeaderboard(trivia);
+  if (!leaderboardData || leaderboardData.length === 0) {
+    console.log(options.noSubmissionsLog || 'No submissions found for leaderboard');
+    return;
+  }
+
+  const storedMessage = await getStoredLeaderboardMessage(channel, trivia);
+  const fallbackText = storedMessage.data?.fallbackText || options.fallbackText || `🏆 ${trivia.topic} Leaderboard`;
+  const headingText = storedMessage.data?.headingText || options.headingText || `🏆 **Leaderboard** 🏆`;
+  const blocks = buildLeaderboardBlocks(trivia, leaderboardData, headingText);
+
+  let messageTs = storedMessage.data?.ts;
+  if (messageTs) {
+    try {
+      await app.client.chat.update({
+        channel,
+        ts: messageTs,
+        text: fallbackText,
+        blocks,
+      });
+    } catch (error) {
+      console.warn('Unable to update stored leaderboard message; posting a new one.', error);
+      messageTs = null;
+    }
+  }
+
+  if (!messageTs) {
+    const response = await app.client.chat.postMessage({
+      channel,
+      text: fallbackText,
+      blocks,
+    });
+    messageTs = response.ts;
+  }
+
+  await setDoc(storedMessage.ref, {
+    channel,
+    ts: messageTs,
+    topic: trivia.topic,
+    date: getTriviaDate(trivia),
+    fallbackText,
+    headingText,
+    updatedAt: new Date(),
+  }, {merge: true});
+}
 
 function getNumericScore(score) {
   const value = Number(score);
