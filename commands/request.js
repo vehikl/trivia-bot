@@ -1,5 +1,5 @@
-import {store as storeQuiz} from '../models/quiz/quiz.js';
-import {getNextThursday, getStartOfDay} from '../services/utils/datetime.js';
+import {getTriviaForCalendarDay, store as storeQuiz} from '../models/quiz/quiz.js';
+import {formatDate, getNextThursday, getStartOfDay} from '../services/utils/datetime.js';
 import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
 import {validateTriviaTopic} from '../services/trivia/topicSafety.js';
 
@@ -52,13 +52,24 @@ export function requestCommand(app, openai, options = {}) {
       return;
     }
 
-    await app.client.chat.postEphemeral({
-      channel: body.channel_id,
-      user: body.user_id,
-      text: `Reviewing and generating trivia for "${requestedTopic}"...`,
-    });
-
     try {
+      const date = getTriviaDate();
+      const existingTrivia = await getTriviaForCalendarDay(date);
+      if (existingTrivia) {
+        await app.client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user_id,
+          text: `A quiz already exists for ${formatDate(date)}: "${existingTrivia.topic}". I did not replace it.`,
+        });
+        return;
+      }
+
+      await app.client.chat.postEphemeral({
+        channel: body.channel_id,
+        user: body.user_id,
+        text: `Reviewing and generating trivia for "${requestedTopic}"...`,
+      });
+
       const safety = await validateTriviaTopic(openai, requestedTopic);
       if (!safety.isAppropriate) {
         await app.client.chat.postEphemeral({
@@ -76,13 +87,12 @@ export function requestCommand(app, openai, options = {}) {
         correctAnswer: item.correctAnswer,
         isBonus: item.isBonus,
       }));
-      const date = getTriviaDate();
       const ok = await storeQuiz({
         topic,
         questions,
         date,
         requestedBy: requestedByPayload(body, requestedTopic),
-      });
+      }, {failIfExists: true});
 
       if (!ok) {
         throw new Error('Failed to store requested trivia');

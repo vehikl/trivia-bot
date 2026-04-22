@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
-import {store} from '../models/quiz/quiz.js';
-import {getStartOfDay} from '../services/utils/datetime.js';
+import {getTriviaForCalendarDay, store} from '../models/quiz/quiz.js';
+import {formatDate, getStartOfDay} from '../services/utils/datetime.js';
 import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
@@ -110,17 +110,36 @@ const executeCommand = async (app, body, say) => {
     }
 
     try {
+      const existingTrivia = await getTriviaForCalendarDay(selectedStart);
+      if (existingTrivia) {
+        await app.client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user?.id ?? body.user_id,
+          text: `A quiz already exists for ${formatDate(selectedStart)}: "${existingTrivia.topic}". I did not replace it.`,
+        });
+        return;
+      }
+
       const questions = response.questions.map(item => ({
         question: item.question,
         correctAnswer: item.correctAnswer,
         isBonus: item.isBonus,
       }));
 
-      await store({
+      const ok = await store({
         topic,
         questions,
-        date,
-      });
+        date: selectedStart,
+      }, {failIfExists: true});
+
+      if (!ok) {
+        await app.client.chat.postEphemeral({
+          channel: body.channel_id,
+          user: body.user?.id ?? body.user_id,
+          text: `I could not save this quiz because ${formatDate(selectedStart)} already has a quiz.`,
+        });
+        return;
+      }
 
       await app.client.chat.postEphemeral({
         channel: body.channel_id,

@@ -102,8 +102,18 @@ export async function getLastWeeksTrivia() {
   return previousTrivia;
 }
 
-export async function store(quiz) {
+export async function store(quiz, options = {}) {
+  const {failIfExists = false} = options;
+
   try {
+    if (failIfExists) {
+      const existingTrivia = await getTriviaForCalendarDay(quiz.date);
+      if (existingTrivia) {
+        console.warn('Refusing to overwrite existing trivia for date:', quiz.date);
+        return false;
+      }
+    }
+
     // Create a consistent ID for the quiz document based on its date
     const documentId = quiz.date instanceof Date ? quiz.date.toDateString() : quiz.date.toString();
     await setDoc(doc(firebaseDatabase, 'quizzes', documentId), quiz);
