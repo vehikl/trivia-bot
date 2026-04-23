@@ -1,5 +1,6 @@
 import {
   getLastWeeksTrivia,
+  getLatestPlayableTrivia,
   getTriviaForCalendarDay,
 } from '../../models/quiz/quiz.js';
 import {getNextThursday, getStartOfDay} from '../utils/datetime.js';
@@ -16,6 +17,10 @@ export async function getDefaultTriviaForPlay() {
     return getTriviaForCalendarDay(new Date());
   }
   return getLastWeeksTrivia();
+}
+
+export async function getLatestTriviaForPlay() {
+  return getLatestPlayableTrivia(new Date());
 }
 
 export function getTriviaDateForRequest() {

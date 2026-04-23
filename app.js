@@ -13,6 +13,7 @@ import {
 import {allCommand} from "./commands/all.js";
 import {answersCommand} from "./commands/answers.js";
 import {generateCommand} from "./commands/generate.js";
+import {playCommand} from './commands/play.js';
 import {requestCommand} from './commands/request.js';
 import {getSubmission, store} from "./models/submission/submission.js";
 import {getNextThursday, getStartOfDay} from './services/utils/datetime.js';
@@ -22,6 +23,7 @@ import {getTimeToScoreForSubmission, upsertLeaderboardMessage} from './services/
 import {openTriviaModal} from './services/trivia/playModal.js';
 import {
   getDefaultTriviaForPlay,
+  getLatestTriviaForPlay,
   getTriviaDateForRequest,
   isDailyTestCronEnabled,
 } from './services/trivia/runtime.js';
@@ -52,6 +54,7 @@ const TRIVIA_CHANNEL_ID = 'C04D6JZ0L67';
 allCommand(app);
 answersCommand(app);
 generateCommand(app);
+playCommand(app, {getTriviaForPlay: getLatestTriviaForPlay});
 requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
 registerHomeView(app);
 

@@ -3,9 +3,19 @@ import {getSubmission} from '../../models/submission/submission.js';
 
 export async function openTriviaModal({body, client, logger, getDefaultTriviaForPlay}) {
   const userId = body.user?.id ?? body.user_id;
+  const channelId = body.channel?.id || body.channel_id || 'C04D6JZ0L67';
   const trivia = !body.text
     ? await getDefaultTriviaForPlay()
     : await getTrivia(body.text);
+
+  if (!trivia?.topic || !Array.isArray(trivia.questions) || trivia.questions.length === 0) {
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      text: 'No trivia is available to play right now.',
+    });
+    return;
+  }
 
   const submission = await getSubmission(userId, trivia);
   const alreadyPlayed = Boolean(submission);
@@ -60,7 +70,7 @@ export async function openTriviaModal({body, client, logger, getDefaultTriviaFor
         callback_id: 'trivia_view',
         private_metadata: JSON.stringify({
           quizDate: trivia.date,
-          channelId: body.channel?.id || body.channel_id || 'C04D6JZ0L67',
+          channelId,
         }),
         title: {
           type: 'plain_text',

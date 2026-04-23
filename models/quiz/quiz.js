@@ -1,4 +1,4 @@
-import {collection, doc, getDocs, query, setDoc, updateDoc, where} from 'firebase/firestore';
+import {collection, doc, getDocs, limit, orderBy, query, setDoc, updateDoc, where} from 'firebase/firestore';
 import firebaseDatabase from '../../services/firebase/databaseConnection.js';
 import { 
   fromFirestoreTimestamp, 
@@ -100,6 +100,24 @@ export async function getLastWeeksTrivia() {
   });
 
   return previousTrivia;
+}
+
+export async function getLatestPlayableTrivia(referenceDate = new Date()) {
+  const latestAllowedDate = getEndOfDay(referenceDate);
+  const triviaRef = collection(firebaseDatabase, 'quizzes');
+  const latestTriviaQuery = query(
+    triviaRef,
+    where('date', '<=', latestAllowedDate),
+    orderBy('date', 'desc'),
+    limit(1)
+  );
+
+  const snapshot = await getDocs(latestTriviaQuery);
+  if (snapshot.empty) {
+    return undefined;
+  }
+
+  return snapshot.docs[0].data();
 }
 
 export async function store(quiz, options = {}) {
