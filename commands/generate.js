@@ -5,10 +5,8 @@ import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 
-let generateMessageResponse;
-
 export function generateCommand(app) {
-  app.command('/generate', async ({ack, body, say}) => {
+  app.command('/generate', async ({ack, body}) => {
     await ack();
 
     if (!body.text) {
@@ -21,22 +19,22 @@ export function generateCommand(app) {
       return;
     }
 
-    generateMessageResponse = await app.client.chat.postEphemeral({
+    await app.client.chat.postEphemeral({
       channel: body.channel_id,
       user: body.user_id,
       text: 'Generating Questions... :brain:',
     });
 
     try {
-      await executeCommand(app, body, say);
+      await executeCommand(app, body);
     } catch (error) {
       console.log(error);
-      await executeCommand(app, body, say);
+      await executeCommand(app, body);
     }
   });
 }
 
-const executeCommand = async (app, body, say) => {
+const executeCommand = async (app, body) => {
   const topic = body.text;
 
   const response = await generateQuestionsForTopic(openai, topic);
@@ -70,18 +68,13 @@ const executeCommand = async (app, body, say) => {
   app.action('regenerate', async ({ack}) => {
     await ack();
 
-    await app.client.chat.update({
+    await app.client.chat.postEphemeral({
       channel: body.channel_id,
-      ts: generateMessageResponse.ts,
+      user: body.user?.id ?? body.user_id,
       text: 'Regenerating Questions... :brain:',
     });
 
-    await app.client.chat.delete({
-      channel: body.channel_id,
-      ts: messageResponse.ts
-    })
-
-    await executeCommand(app, body, say);
+    await executeCommand(app, body);
   });
 
   app.action('submit', async ({ack}) => {
@@ -151,7 +144,9 @@ const executeCommand = async (app, body, say) => {
     }
   });
 
-  const messageResponse = await say({
+  await app.client.chat.postEphemeral({
+    channel: body.channel_id,
+    user: body.user?.id ?? body.user_id,
     'text': 'Questions Based on ' + body.text,
     'blocks': [
       {
