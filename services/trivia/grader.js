@@ -193,6 +193,73 @@ function isNounVerbVariantMatch(correct, user) {
   return false;
 }
 
+function levenshteinDistance(left, right, maxDistance) {
+  if (left === right) {
+    return 0;
+  }
+
+  if (Math.abs(left.length - right.length) > maxDistance) {
+    return maxDistance + 1;
+  }
+
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    let rowMinimum = current[0];
+
+    for (let j = 1; j <= right.length; j++) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      const value = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost
+      );
+
+      current[j] = value;
+      rowMinimum = Math.min(rowMinimum, value);
+    }
+
+    if (rowMinimum > maxDistance) {
+      return maxDistance + 1;
+    }
+
+    previous = current;
+  }
+
+  return previous[right.length];
+}
+
+function typoToleranceForLength(length) {
+  if (length < 7) {
+    return 0;
+  }
+
+  if (length <= 12) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function isMinorSpellingVariant(correct, user) {
+  const c = normalizeNoSpaces(correct);
+  const u = normalizeNoSpaces(user);
+  if (!c || !u) return false;
+
+  const shorterLength = Math.min(c.length, u.length);
+  const maxDistance = typoToleranceForLength(shorterLength);
+  if (maxDistance === 0) {
+    return false;
+  }
+
+  if (Math.abs(c.length - u.length) > maxDistance) {
+    return false;
+  }
+
+  return levenshteinDistance(c, u, maxDistance) <= maxDistance;
+}
+
 function scoreCorrectAnswer(isBonus, scores) {
   if (isBonus) {
     scores.bonusScore++;
@@ -224,6 +291,10 @@ export function isCorrectLocalMatch(userAnswer, correctAnswer) {
     }
 
     if (isNounVerbVariantMatch(optionNormalizedNoSpaces, userAnswerNormalizedNoSpaces)) {
+      return true;
+    }
+
+    if (isMinorSpellingVariant(option, userAnswer)) {
       return true;
     }
   }
