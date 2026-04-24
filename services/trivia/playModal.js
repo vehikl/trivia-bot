@@ -19,7 +19,15 @@ export async function openTriviaModal({body, client, logger, getDefaultTriviaFor
 
   const submission = await getSubmission(userId, trivia);
   const alreadyPlayed = Boolean(submission);
-  const questionsBlock = [];
+  const questionsBlock = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Topic:* ${trivia.topic}`,
+      },
+    },
+  ];
 
   trivia.questions.forEach((item, index) => {
     const label = item.isBonus
@@ -74,7 +82,7 @@ export async function openTriviaModal({body, client, logger, getDefaultTriviaFor
         }),
         title: {
           type: 'plain_text',
-          text: `${trivia.topic.toUpperCase()}`,
+          text: 'Play Trivia',
         },
         blocks: [
           ...questionsBlock,
