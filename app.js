@@ -49,7 +49,7 @@ const app = new App({
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const TRIVIA_CHANNEL_ID = 'C04D6JZ0L67';
+const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 
 allCommand(app);
 answersCommand(app);
