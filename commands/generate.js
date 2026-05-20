@@ -117,7 +117,7 @@ function buildDraftBlocks(draft) {
       elements: [
         {
           type: 'mrkdwn',
-          text: 'Make sure to review the answers and questions before submitting! 💡',
+          text: 'Make sure to review the questions before submitting! 💡',
         },
       ],
     },
