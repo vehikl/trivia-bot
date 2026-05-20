@@ -5,25 +5,33 @@ function titleCaseWords(text) {
     .join(' ');
 }
 
-function getRequestedByText(trivia) {
-  const requestedBy = trivia?.requestedBy;
-  if (!requestedBy) {
+function getUserDisplay(user) {
+  if (!user) {
     return null;
   }
 
-  const userId = typeof requestedBy === 'string' ? requestedBy : requestedBy.userId;
-  const userName = typeof requestedBy === 'object' ? requestedBy.userName : '';
-  const userDisplay = userId ? `<@${userId}>` : userName;
-  if (!userDisplay) {
+  const userId = typeof user === 'string' ? user : user.userId;
+  const userName = typeof user === 'object' ? user.userName : '';
+  return userId ? `<@${userId}>` : userName;
+}
+
+function getTriviaAttributionText(trivia) {
+  const requestedByDisplay = getUserDisplay(trivia?.requestedBy);
+  if (requestedByDisplay) {
+    return `Trivia Topic Requested by: ${requestedByDisplay}`;
+  }
+
+  const submittedByDisplay = getUserDisplay(trivia?.submittedBy);
+  if (!submittedByDisplay) {
     return null;
   }
 
-  return `Trivia Topic Requested by: ${userDisplay}`;
+  return `Generated Quiz Submitted by: ${submittedByDisplay}`;
 }
 
 export function getRequestedByBlocks(trivia) {
-  const requestedByText = getRequestedByText(trivia);
-  if (!requestedByText) {
+  const attributionText = getTriviaAttributionText(trivia);
+  if (!attributionText) {
     return [];
   }
 
@@ -32,7 +40,7 @@ export function getRequestedByBlocks(trivia) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: requestedByText,
+        text: attributionText,
       },
     },
   ];

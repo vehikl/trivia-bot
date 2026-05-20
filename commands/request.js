@@ -2,8 +2,9 @@ import {getTriviaForCalendarDay, store as storeQuiz} from '../models/quiz/quiz.j
 import {formatDate, getNextThursday, getStartOfDay} from '../services/utils/datetime.js';
 import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
 import {validateTriviaTopic} from '../services/trivia/topicSafety.js';
+import {normalizeTriviaTopicTitle} from '../services/trivia/topicTitle.js';
 
-const MAX_TOPIC_LENGTH = 80;
+const MAX_SUBMITTED_TOPIC_LENGTH = 300;
 
 function normalizeRequestedTopic(topic) {
   return (topic || '')
@@ -43,11 +44,11 @@ export function requestCommand(app, openai, options = {}) {
       return;
     }
 
-    if (requestedTopic.length > MAX_TOPIC_LENGTH) {
+    if (requestedTopic.length > MAX_SUBMITTED_TOPIC_LENGTH) {
       await app.client.chat.postEphemeral({
         channel: body.channel_id,
         user: body.user_id,
-        text: `Please keep trivia topics under ${MAX_TOPIC_LENGTH} characters.`,
+        text: `Please keep trivia topic requests under ${MAX_SUBMITTED_TOPIC_LENGTH} characters.`,
       });
       return;
     }
@@ -80,7 +81,7 @@ export function requestCommand(app, openai, options = {}) {
         return;
       }
 
-      const topic = normalizeRequestedTopic(safety.topic || requestedTopic);
+      const topic = normalizeTriviaTopicTitle(safety.topic || requestedTopic);
       const payload = await generateQuestionsForTopic(openai, topic);
       const questions = payload.questions.map((item) => ({
         question: item.question,

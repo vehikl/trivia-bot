@@ -3,9 +3,12 @@ import OpenAI from 'openai';
 import {getTriviaForCalendarDay, store} from '../models/quiz/quiz.js';
 import {formatDate, getStartOfDay} from '../services/utils/datetime.js';
 import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
+import {validateTriviaTopic} from '../services/trivia/topicSafety.js';
+import {normalizeTriviaTopicTitle} from '../services/trivia/topicTitle.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 const generateDrafts = new Map();
+const MAX_SUBMITTED_TOPIC_LENGTH = 300;
 const DATEPICKER_ACTION_ID = 'generate_datepicker';
 const REGENERATE_ACTION_ID = 'generate_regenerate';
 const SUBMIT_ACTION_ID = 'generate_submit';
@@ -13,6 +16,19 @@ const DATEPICKER_BLOCK_PREFIX = 'generate_datepicker:';
 
 function getUserId(body) {
   return body.user?.id ?? body.user_id;
+}
+
+function getUserName(body) {
+  return body.user?.name ?? body.user?.username ?? body.user_name ?? '';
+}
+
+function submittedByPayload(body, originalTopic) {
+  return {
+    userId: getUserId(body),
+    userName: getUserName(body),
+    submittedAt: new Date(),
+    originalTopic,
+  };
 }
 
 function getChannelId(body) {
@@ -27,6 +43,14 @@ function getDraftIdFromBlockId(blockId) {
   return blockId?.startsWith(DATEPICKER_BLOCK_PREFIX)
     ? blockId.slice(DATEPICKER_BLOCK_PREFIX.length)
     : null;
+}
+
+function normalizeSubmittedTopic(topic) {
+  return (topic || '')
+    .trim()
+    .replace(/[<>`]/g, '')
+    .replace(/^["']|["']$/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 function normalizeQuestions(questions) {
@@ -135,6 +159,10 @@ function buildDraftBlocks(draft) {
 }
 
 function buildSubmittedBlocks(draft, selectedStart) {
+  const submitter = draft.submittedBy?.userId
+    ? `<@${draft.submittedBy.userId}>`
+    : draft.submittedBy?.userName;
+
   return [
     {
       type: 'header',
@@ -147,7 +175,11 @@ function buildSubmittedBlocks(draft, selectedStart) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Topic:* ${draft.topic}\n*Date:* ${formatDate(selectedStart)}`,
+        text: [
+          `*Topic:* ${draft.topic}`,
+          `*Date:* ${formatDate(selectedStart)}`,
+          submitter ? `*Submitted By:* ${submitter}` : null,
+        ].filter(Boolean).join('\n'),
       },
     },
     ...buildQuestionBlocks(draft.questions),
@@ -203,11 +235,12 @@ async function replaceDraftMessage({respond, client, body, draft}) {
   }
 }
 
-async function generateDraft(topic, body) {
+async function generateDraft(topic, body, originalTopic) {
   const payload = await generateQuestionsForTopic(openai, topic);
   return {
     id: randomUUID(),
     topic,
+    originalTopic,
     userId: getUserId(body),
     selectedDate: null,
     questions: normalizeQuestions(payload.questions),
@@ -218,20 +251,36 @@ export function generateCommand(app) {
   app.command('/generate', async ({ack, body, client}) => {
     await ack();
 
-    const topic = (body.text || '').trim();
-    if (!topic) {
+    const submittedTopic = normalizeSubmittedTopic(body.text);
+    if (!submittedTopic) {
       await postPrivateMessage(client, body, {
         text: ':bread: Please pick a topic to generate questions. :bread:',
       });
       return;
     }
 
+    if (submittedTopic.length > MAX_SUBMITTED_TOPIC_LENGTH) {
+      await postPrivateMessage(client, body, {
+        text: `Please keep trivia topic requests under ${MAX_SUBMITTED_TOPIC_LENGTH} characters.`,
+      });
+      return;
+    }
+
     await postPrivateMessage(client, body, {
-      text: 'Generating Questions... :brain:',
+      text: 'Reviewing and generating questions... :brain:',
     });
 
     try {
-      const draft = await generateDraft(topic, body);
+      const safety = await validateTriviaTopic(openai, submittedTopic);
+      if (!safety.isAppropriate) {
+        await postPrivateMessage(client, body, {
+          text: `Please choose a different work-appropriate topic. ${safety.reason}`,
+        });
+        return;
+      }
+
+      const topic = normalizeTriviaTopicTitle(safety.topic || submittedTopic);
+      const draft = await generateDraft(topic, body, submittedTopic);
       generateDrafts.set(draft.id, draft);
 
       await postPrivateMessage(client, body, {
@@ -331,10 +380,12 @@ export function generateCommand(app) {
         return;
       }
 
+      const submittedBy = submittedByPayload(body, draft.originalTopic);
       const ok = await store({
         topic: draft.topic,
         questions: draft.questions,
         date: selectedStart,
+        submittedBy,
       }, {failIfExists: true});
 
       if (!ok) {
@@ -345,6 +396,7 @@ export function generateCommand(app) {
       }
 
       generateDrafts.delete(draft.id);
+      draft.submittedBy = submittedBy;
 
       try {
         await respond({
