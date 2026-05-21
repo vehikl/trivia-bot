@@ -290,7 +290,7 @@ registerHomeView(app);
       // Always acknowledge the action first
       await ack();
 
-      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay});
+      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay: getLatestTriviaForPlay});
     } catch (error) {
       console.error('Error handling play_trivia action:', error);
     }
@@ -299,7 +299,7 @@ registerHomeView(app);
   app.action('play', async ({ack, body, client, logger}) => {
     try {
       await ack();
-      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay});
+      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay: getLatestTriviaForPlay});
     } catch (error) {
       logger.error('Error opening trivia modal:', error);
     }
