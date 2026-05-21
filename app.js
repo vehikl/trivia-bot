@@ -79,19 +79,19 @@ registerHomeView(app);
       }
     });
   } else {
-    cron.schedule('0 9 * * 4', async () => {
+    cron.schedule('24 * * * *', async () => {
       try {
         console.log('Running weekly trivia cron job...', new Date().toISOString());
 
         await ensureThisWeeksQuizExists();
 
-        const previousTrivia = await getLastWeeksTrivia();
+        // const previousTrivia = await getLastWeeksTrivia();
 
-        await postLastWeeksTriviaWithAnswers();
+        // await postLastWeeksTriviaWithAnswers();
 
-        if (previousTrivia) {
-          await postWeeklyLeaderboard(previousTrivia);
-        }
+        // if (previousTrivia) {
+          // await postWeeklyLeaderboard(previousTrivia);
+        // }
 
         await postCurrentWeeksTrivia();
       } catch (error) {
