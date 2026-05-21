@@ -103,6 +103,7 @@ registerHomeView(app);
   // Function to post last week's trivia with answers
   async function postLastWeeksTriviaWithAnswers() {
     const previousTrivia = await getLastWeeksTrivia();
+    const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
     
     // Check if previousTrivia exists and has the required properties
     if (!previousTrivia || !previousTrivia.topic || !previousTrivia.questions) {
@@ -185,6 +186,7 @@ registerHomeView(app);
   async function postTodaysTrivia() {
     const today = getStartOfDay(new Date());
     const currentTrivia = await getTriviaForCalendarDay(today);
+    const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 
     if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
       console.log('[daily test] No trivia to post for today');
@@ -249,6 +251,7 @@ registerHomeView(app);
   async function postCurrentWeeksTrivia() {
     // Use getNextTrivia() instead of getTrivia() without parameters
     const currentTrivia = await getNextTrivia();
+    const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
     
     // Check if currentTrivia exists and has the required properties
     if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
@@ -310,6 +313,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
   const userId = body.user.id;
   const metadata = body.view.private_metadata ? JSON.parse(body.view.private_metadata) : {};
+  const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
   const responseChannelId = metadata.channelId || TRIVIA_CHANNEL_ID;
 
   // Extract free-text answers from modal state
