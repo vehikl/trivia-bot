@@ -1,18 +1,18 @@
 import {randomUUID} from 'node:crypto';
 import OpenAI from 'openai';
-import {getTriviaForCalendarDay, store} from '../models/quiz/quiz.js';
-import {formatDate, getStartOfDay} from '../services/utils/datetime.js';
+import {store} from '../models/quiz/quiz.js';
+import {formatDate} from '../services/utils/datetime.js';
 import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
+import {getNextAvailableTriviaDateForRequest} from '../services/trivia/runtime.js';
 import {validateTriviaTopic} from '../services/trivia/topicSafety.js';
 import {normalizeTriviaTopicTitle} from '../services/trivia/topicTitle.js';
 
 const openai = new OpenAI({apiKey: process.env.OPENAI_API_KEY});
 const generateDrafts = new Map();
 const MAX_SUBMITTED_TOPIC_LENGTH = 300;
-const DATEPICKER_ACTION_ID = 'generate_datepicker';
+const MAX_SAVE_DATE_ATTEMPTS = 3;
 const REGENERATE_ACTION_ID = 'generate_regenerate';
 const SUBMIT_ACTION_ID = 'generate_submit';
-const DATEPICKER_BLOCK_PREFIX = 'generate_datepicker:';
 
 function getUserId(body) {
   return body.user?.id ?? body.user_id;
@@ -35,16 +35,6 @@ function getChannelId(body) {
   return body.channel?.id ?? body.channel_id;
 }
 
-function getDatepickerBlockId(draftId) {
-  return `${DATEPICKER_BLOCK_PREFIX}${draftId}`;
-}
-
-function getDraftIdFromBlockId(blockId) {
-  return blockId?.startsWith(DATEPICKER_BLOCK_PREFIX)
-    ? blockId.slice(DATEPICKER_BLOCK_PREFIX.length)
-    : null;
-}
-
 function normalizeSubmittedTopic(topic) {
   return (topic || '')
     .trim()
@@ -61,19 +51,6 @@ function normalizeQuestions(questions) {
   }));
 }
 
-function parseSelectedDate(selectedDate) {
-  if (!selectedDate) {
-    return null;
-  }
-
-  const [year, month, day] = selectedDate.split('-').map(Number);
-  if (!year || !month || !day) {
-    return null;
-  }
-
-  return new Date(year, month - 1, day);
-}
-
 function buildQuestionBlocks(questions) {
   return questions.map((item, index) => ({
     type: 'section',
@@ -87,19 +64,6 @@ function buildQuestionBlocks(questions) {
 }
 
 function buildDraftBlocks(draft) {
-  const datepicker = {
-    type: 'datepicker',
-    action_id: DATEPICKER_ACTION_ID,
-    placeholder: {
-      type: 'plain_text',
-      text: 'Select a Date',
-    },
-  };
-
-  if (draft.selectedDate) {
-    datepicker.initial_date = draft.selectedDate;
-  }
-
   return [
     {
       type: 'header',
@@ -117,18 +81,9 @@ function buildDraftBlocks(draft) {
       elements: [
         {
           type: 'mrkdwn',
-          text: 'Make sure to review the questions before submitting! 💡',
+          text: 'Make sure to review the questions before submitting. The quiz will be saved for the next available trivia date.',
         },
       ],
-    },
-    {
-      type: 'section',
-      block_id: getDatepickerBlockId(draft.id),
-      text: {
-        type: 'mrkdwn',
-        text: 'Pick a date for when the Questions will be for.',
-      },
-      accessory: datepicker,
     },
     {
       type: 'actions',
@@ -159,10 +114,6 @@ function buildDraftBlocks(draft) {
 }
 
 function buildSubmittedBlocks(draft, selectedStart) {
-  const submitter = draft.submittedBy?.userId
-    ? `<@${draft.submittedBy.userId}>`
-    : draft.submittedBy?.userName;
-
   return [
     {
       type: 'header',
@@ -177,8 +128,7 @@ function buildSubmittedBlocks(draft, selectedStart) {
         type: 'mrkdwn',
         text: [
           `*Topic:* ${draft.topic}`,
-          `*Date:* ${formatDate(selectedStart)}`,
-          submitter ? `*Submitted By:* ${submitter}` : null,
+          `*Date:* ${formatDate(selectedStart)}`
         ].filter(Boolean).join('\n'),
       },
     },
@@ -188,7 +138,7 @@ function buildSubmittedBlocks(draft, selectedStart) {
       elements: [
         {
           type: 'mrkdwn',
-          text: 'This quiz draft has been saved.',
+          text: 'This quiz draft has been saved for the next available trivia date.',
         },
       ],
     },
@@ -242,9 +192,35 @@ async function generateDraft(topic, body, originalTopic) {
     topic,
     originalTopic,
     userId: getUserId(body),
-    selectedDate: null,
     questions: normalizeQuestions(payload.questions),
   };
+}
+
+async function storeDraftForNextAvailableDate(draft, submittedBy) {
+  let lastAttemptedDate = null;
+
+  for (let attempt = 1; attempt <= MAX_SAVE_DATE_ATTEMPTS; attempt++) {
+    const date = await getNextAvailableTriviaDateForRequest();
+    lastAttemptedDate = date;
+    const ok = await store({
+      topic: draft.topic,
+      questions: draft.questions,
+      date,
+      submittedBy,
+    }, {failIfExists: true});
+
+    if (ok) {
+      return date;
+    }
+
+    console.warn(
+      `Generated quiz save attempt ${attempt} failed for ${formatDate(date)}; retrying with next available date.`
+    );
+  }
+
+  throw new Error(
+    `Failed to store generated trivia after ${MAX_SAVE_DATE_ATTEMPTS} attempts. Last attempted date: ${formatDate(lastAttemptedDate)}`
+  );
 }
 
 export function generateCommand(app) {
@@ -295,22 +271,6 @@ export function generateCommand(app) {
     }
   });
 
-  app.action(DATEPICKER_ACTION_ID, async ({ack, body, client}) => {
-    await ack();
-
-    const draftId = getDraftIdFromBlockId(body.actions?.[0]?.block_id);
-    const draft = getOwnedDraft(body, draftId);
-    if (!draft) {
-      await postPrivateMessage(client, body, {
-        text: 'That generated quiz draft is no longer available.',
-      });
-      return;
-    }
-
-    draft.selectedDate = body.actions?.[0]?.selected_date || null;
-    generateDrafts.set(draft.id, draft);
-  });
-
   app.action(REGENERATE_ACTION_ID, async ({ack, body, client, respond}) => {
     await ack();
 
@@ -353,63 +313,27 @@ export function generateCommand(app) {
       return;
     }
 
-    const selectedDate = parseSelectedDate(draft.selectedDate);
-    if (!selectedDate) {
-      await postPrivateMessage(client, body, {
-        text: 'Please select a date first!',
-      });
-      return;
-    }
-
-    const todayStart = getStartOfDay(new Date());
-    const selectedStart = getStartOfDay(selectedDate);
-
-    if (selectedStart < todayStart) {
-      await postPrivateMessage(client, body, {
-        text: 'Please select a valid date!',
-      });
-      return;
-    }
-
     try {
-      const existingTrivia = await getTriviaForCalendarDay(selectedStart);
-      if (existingTrivia) {
-        await postPrivateMessage(client, body, {
-          text: `A quiz already exists for ${formatDate(selectedStart)}: "${existingTrivia.topic}". I did not replace it.`,
-        });
-        return;
-      }
-
       const submittedBy = submittedByPayload(body, draft.originalTopic);
-      const ok = await store({
-        topic: draft.topic,
-        questions: draft.questions,
-        date: selectedStart,
-        submittedBy,
-      }, {failIfExists: true});
-
-      if (!ok) {
-        await postPrivateMessage(client, body, {
-          text: `I could not save this quiz because ${formatDate(selectedStart)} already has a quiz.`,
-        });
-        return;
-      }
+      const availableStart = await storeDraftForNextAvailableDate(draft, submittedBy);
 
       generateDrafts.delete(draft.id);
       draft.submittedBy = submittedBy;
+
+      const submittedText = `Your Questions for ${draft.topic} have been submitted for ${formatDate(availableStart)}.`;
 
       try {
         await respond({
           response_type: 'ephemeral',
           replace_original: true,
-          text: `Your Questions for ${draft.topic} have been submitted! :tada:`,
-          blocks: buildSubmittedBlocks(draft, selectedStart),
+          text: submittedText,
+          blocks: buildSubmittedBlocks(draft, availableStart),
         });
       } catch (error) {
         console.error('Error replacing submitted draft message:', error);
         await postPrivateMessage(client, body, {
-          text: `Your Questions for ${draft.topic} have been submitted! :tada:`,
-          blocks: buildSubmittedBlocks(draft, selectedStart),
+          text: submittedText,
+          blocks: buildSubmittedBlocks(draft, availableStart),
         });
       }
     } catch (error) {

@@ -22,9 +22,8 @@ import {gradeTriviaSubmission} from './services/trivia/grader.js';
 import {getTimeToScoreForSubmission, upsertLeaderboardMessage} from './services/trivia/leaderboard.js';
 import {openTriviaModal} from './services/trivia/playModal.js';
 import {
-  getDefaultTriviaForPlay,
   getLatestTriviaForPlay,
-  getTriviaDateForRequest,
+  getNextAvailableTriviaDateForRequest,
   isDailyTestCronEnabled,
 } from './services/trivia/runtime.js';
 import {
@@ -49,16 +48,33 @@ const app = new App({
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 
 allCommand(app);
 answersCommand(app);
 generateCommand(app);
 playCommand(app, {getTriviaForPlay: getLatestTriviaForPlay});
-requestCommand(app, openai, {getTriviaDate: getTriviaDateForRequest});
+requestCommand(app, openai, {getTriviaDate: getNextAvailableTriviaDateForRequest});
 registerHomeView(app);
 
-(async () => {
+app.action('play_trivia', async ({ ack, body, client, logger }) => {
+  try {
+    await ack();
+    await openTriviaModal({body, client, logger, getDefaultTriviaForPlay: getLatestTriviaForPlay});
+  } catch (error) {
+    console.error('Error handling play_trivia action:', error);
+  }
+});
+
+app.action('play', async ({ack, body, client, logger}) => {
+  try {
+    await ack();
+    await openTriviaModal({body, client, logger, getDefaultTriviaForPlay: getLatestTriviaForPlay});
+  } catch (error) {
+    logger.error('Error opening trivia modal:', error);
+  }
+});
+
+async function startBot() {
   await app.start();
 
   if (isDailyTestCronEnabled()) {
@@ -285,26 +301,7 @@ registerHomeView(app);
     });
   }
 
-  app.action('play_trivia', async ({ ack, body, client, logger }) => {
-    try {
-      // Always acknowledge the action first
-      await ack();
-
-      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay: getLatestTriviaForPlay});
-    } catch (error) {
-      console.error('Error handling play_trivia action:', error);
-    }
-  });
-
-  app.action('play', async ({ack, body, client, logger}) => {
-    try {
-      await ack();
-      await openTriviaModal({body, client, logger, getDefaultTriviaForPlay: getLatestTriviaForPlay});
-    } catch (error) {
-      logger.error('Error opening trivia modal:', error);
-    }
-  });
-})();
+}
 
 app.view('trivia_view', async ({ ack, body, client }) => {
   await ack();
@@ -413,4 +410,9 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     user: body.user.id,
     blocks: questionBlocks,
   });
+});
+
+startBot().catch((error) => {
+  console.error('Error starting app:', error);
+  process.exitCode = 1;
 });

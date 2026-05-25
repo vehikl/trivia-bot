@@ -44,7 +44,7 @@ const SPECIFIC_QUESTION_STYLE_GUIDANCE =
   '- Write each question like a concise clue card: one specific clue sentence with 2 to 4 verifiable details before the ask.\n' +
   '- A strong clue sentence usually identifies the kind of answer expected and includes concrete details such as origin/country, era, genre, premise, setting, format, creator/performer role, award/reception, or historical context.\n' +
   '- Prefer this shape when natural: "This [origin/era/genre] [type of thing] follows/features/introduced..." followed by "What is it called?", "Who is this?", or another direct ask.\n' +
-  '- Avoid vague one-fact prompts, broad popularity claims, opinion wording, and clues that could fit many answers.\n' +
+  '- Avoid vague one-fact prompts, broad popularity claims, opinion wording, giveaway phrasing, and clues that could fit many answers.\n' +
   '- Example style for a TV topic: "This German sci-fi mystery drama follows four interconnected families in a small town as they uncover a conspiracy spanning generations. What is it called?"\n';
 const GENERIC_ANSWER_TOKENS = new Set([
   'academy',
@@ -225,13 +225,16 @@ export function buildQuizSystemPrompt(topic) {
     'You are writing a weekly office trivia quiz.\n' +
     'Audience and tone:\n' +
     '- Keep everything strictly safe-for-work: professional, inclusive, no sexual content, slurs, hateful themes, or graphic violence; avoid polarizing political advocacy.\n' +
-    '- Aim at adults roughly 22+: cultured general trivia, clear wording, no kid-quiz triviality unless the topic calls for it.\n' +
+    '- Aim at adults roughly 19 to 40+ with post-secondary education: cultured general trivia, clear wording, and no kid-quiz triviality unless the topic explicitly calls for it.\n' +
     '- When it fits the theme, include questions that software developers would enjoy (languages, tools, CS history, tech culture); do not force dev content if the topic is unrelated.\n' +
     '- Where natural, tie clues or framing to the current season, holidays, or time of year (use the calendar hint below).\n' +
     `Calendar hint: ${calendarHint}.\n` +
     'Requirements:\n' +
-    '- Difficulty: easy-to-medium. Prefer broadly known facts and common terminology; avoid obscure people, obscure dates/events, and hard-to-guess obscure trivia.\n' +
-    '- If the topic is technical, stick to widely used tools, mainstream concepts, and practical knowledge (avoid deep internals or niche acronyms unless very common).\n' +
+    '- Difficulty: medium to moderately challenging for post-secondary educated adults. Use layered clues that require connecting two or more facts, not simple first-association recall.\n' +
+    '- Regular questions should be fair but not obvious; avoid elementary facts, celebrity/name-only prompts, and questions most people would answer from a single giveaway clue.\n' +
+    '- Make the bonus question the hardest: still answerable, but it may require more specific cultural, historical, technical, or contextual knowledge than the regular questions.\n' +
+    '- Prefer notable but non-trivial facts, concepts, works, and events. Avoid extremely obscure people, exact dates, niche acronyms, or hard-to-guess trivia unless the supplied topic is specialized.\n' +
+    '- If the topic is technical, use widely used tools, mainstream concepts, practical knowledge, or well-known CS/software history, but ask for more than surface-level definitions.\n' +
     '- Produce exactly 6 questions total: 5 regular questions and 1 bonus question.\n' +
     '- All questions must match the supplied theme/topic.\n' +
     '- Each question should be concise: use at most 1 short clue sentence before the actual ask, and never exceed 2 sentences total.\n' +
@@ -385,6 +388,7 @@ function buildAnswerValidationMessages(topic, quiz) {
         'Rules:\n' +
         '- Check each question independently. Do not assume the current answer is attached to the right question.\n' +
         '- Rewrite weak question text when it is vague, too broad, ambiguous, opinion-based, under-clued, or could reasonably point to multiple answers.\n' +
+        '- Rewrite questions that are too easy for post-secondary educated adults, such as elementary facts, obvious first-association clues, or simple name-this prompts with a single giveaway detail.\n' +
         '- When rewriting, use the same specific clue-card style as the generator: one concise clue sentence with 2 to 4 verifiable details, followed by a direct ask.\n' +
         SPECIFIC_QUESTION_STYLE_GUIDANCE +
         '- Prefer preserving the existing canonical answer when it is a good topic-matching answer and can be supported by a sharper question.\n' +

@@ -1,4 +1,4 @@
-import {collection, doc, getDocs, limit, orderBy, query, setDoc, updateDoc, where} from 'firebase/firestore';
+import {collection, doc, getDocs, limit, orderBy, query, runTransaction, setDoc, updateDoc, where} from 'firebase/firestore';
 import firebaseDatabase from '../../services/firebase/databaseConnection.js';
 import { 
   fromFirestoreTimestamp, 
@@ -6,6 +6,8 @@ import {
   getStartOfDay, 
   getEndOfDay, 
 } from '../../services/utils/datetime.js';
+
+const QUIZ_EXISTS_ERROR = 'Quiz already exists for date';
 
 export async function getAllTopics() {
   const quizzesCol = collection(firebaseDatabase, 'quizzes');
@@ -124,19 +126,37 @@ export async function store(quiz, options = {}) {
   const {failIfExists = false} = options;
 
   try {
+    // Create a consistent ID for the quiz document based on its date
+    const documentId = quiz.date instanceof Date ? quiz.date.toDateString() : quiz.date.toString();
+    const quizRef = doc(firebaseDatabase, 'quizzes', documentId);
+
     if (failIfExists) {
       const existingTrivia = await getTriviaForCalendarDay(quiz.date);
       if (existingTrivia) {
         console.warn('Refusing to overwrite existing trivia for date:', quiz.date);
         return false;
       }
+
+      await runTransaction(firebaseDatabase, async (transaction) => {
+        const existingQuiz = await transaction.get(quizRef);
+        if (existingQuiz.exists()) {
+          throw new Error(QUIZ_EXISTS_ERROR);
+        }
+
+        transaction.set(quizRef, quiz);
+      });
+
+      return true;
     }
 
-    // Create a consistent ID for the quiz document based on its date
-    const documentId = quiz.date instanceof Date ? quiz.date.toDateString() : quiz.date.toString();
-    await setDoc(doc(firebaseDatabase, 'quizzes', documentId), quiz);
+    await setDoc(quizRef, quiz);
     return true;
   } catch (e) {
+    if (e?.message === QUIZ_EXISTS_ERROR) {
+      console.warn('Refusing to overwrite existing trivia for date:', quiz.date);
+      return false;
+    }
+
     console.error(e);
     return false;
   }
