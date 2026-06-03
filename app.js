@@ -49,6 +49,18 @@ const app = new App({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+function getAcceptedAnswersFeedback(item) {
+  const acceptedAnswers = Array.isArray(item.acceptedAnswers)
+    ? item.acceptedAnswers.map(answer => String(answer || '').trim()).filter(Boolean)
+    : [];
+
+  if (acceptedAnswers.length === 0) {
+    return '';
+  }
+
+  return `Also Accepted: ${acceptedAnswers.join(', ')}\n`;
+}
+
 allCommand(app);
 answersCommand(app);
 generateCommand(app);
@@ -348,7 +360,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     if (verdict === 'exact' || verdict === 'correct') {
       answerFeedback = `Your Answer: ${userAnswer} ✅\n`;
     } else {
-      answerFeedback = `Your Answer: ${userAnswer} ❌\nCorrect Answer: ${correctAnswer}\n`;
+      answerFeedback = `Your Answer: ${userAnswer} ❌\nCorrect Answer: ${correctAnswer}\n${getAcceptedAnswersFeedback(item)}`;
     }
 
     questionText += `*${label}: ${item.question}*\n${answerFeedback}\n`;
