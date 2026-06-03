@@ -64,6 +64,98 @@ const QUESTION_RESTATEMENT_STOPWORDS = new Set([
   'with',
 ]);
 
+const SEMANTIC_QUALIFIER_TOKENS = new Set([
+  'africa',
+  'african',
+  'america',
+  'american',
+  'americas',
+  'asia',
+  'asian',
+  'australia',
+  'australian',
+  'bros',
+  'brothers',
+  'canada',
+  'canadian',
+  'co',
+  'company',
+  'corp',
+  'corporation',
+  'country',
+  'edition',
+  'england',
+  'english',
+  'enterprise',
+  'enterprises',
+  'europe',
+  'european',
+  'franchise',
+  'france',
+  'french',
+  'global',
+  'gmbh',
+  'group',
+  'holdings',
+  'inc',
+  'incorporated',
+  'international',
+  'ireland',
+  'irish',
+  'japan',
+  'japanese',
+  'limited',
+  'ltd',
+  'llc',
+  'llp',
+  'national',
+  'north',
+  'northern',
+  'plc',
+  'region',
+  'regional',
+  'south',
+  'southern',
+  'studios',
+  'uk',
+  'united',
+  'us',
+  'usa',
+  'version',
+  'west',
+  'western',
+  'world',
+  'worldwide',
+]);
+
+const NON_DISTINCTIVE_PARTIAL_TOKENS = new Set([
+  ...QUESTION_RESTATEMENT_STOPWORDS,
+  ...SEMANTIC_QUALIFIER_TOKENS,
+  'airline',
+  'airlines',
+  'album',
+  'app',
+  'award',
+  'bank',
+  'beverage',
+  'book',
+  'brand',
+  'capital',
+  'city',
+  'club',
+  'drink',
+  'film',
+  'game',
+  'museum',
+  'park',
+  'place',
+  'restaurant',
+  'school',
+  'song',
+  'team',
+  'university',
+]);
+
 function stripBracketedText(text) {
   let cleaned = String(text || '');
   let previous;
@@ -131,10 +223,10 @@ function isSafeNormalizedMatch(left, right) {
   return compact.length > 1 || rawMatch;
 }
 
-function answerContainsCorrectAnswer(userAnswer, correctAnswer) {
+function answerContainsCorrectAnswer(userAnswer, correctAnswer, acceptedAnswers = []) {
   const userAnswerNormalized = normalize(userAnswer);
   const userAnswerNormalizedNoSpaces = normalizeNoSpaces(userAnswer);
-  const correctOptions = String(correctAnswer || '').split(/\s+or\s+/i).map(option => option.trim());
+  const correctOptions = getAnswerOptions(correctAnswer, acceptedAnswers);
 
   for (const option of correctOptions) {
     const optionNormalized = normalize(option);
@@ -153,6 +245,16 @@ function answerContainsCorrectAnswer(userAnswer, correctAnswer) {
   }
 
   return false;
+}
+
+function getAnswerOptions(correctAnswer, acceptedAnswers = []) {
+  const rawOptions = [correctAnswer, ...acceptedAnswers]
+    .filter(Boolean)
+    .flatMap(answer => String(answer).split(/\s+or\s+/i))
+    .map(option => option.trim())
+    .filter(Boolean);
+
+  return [...new Set(rawOptions)];
 }
 
 function acronymFromAnswer(text) {
@@ -260,6 +362,51 @@ function isMinorSpellingVariant(correct, user) {
   return levenshteinDistance(c, u, maxDistance) <= maxDistance;
 }
 
+function wordSequencesForSemanticMatch(text) {
+  const words = normalize(text).split(/\s+/).filter(Boolean);
+  if (words[0] === 'the' || words[0] === 'a' || words[0] === 'an') {
+    return [words, words.slice(1)].filter(sequence => sequence.length > 0);
+  }
+
+  return [words];
+}
+
+function hasDistinctivePartialToken(tokens) {
+  return tokens.some(token =>
+    token.length >= 2 &&
+    !NON_DISTINCTIVE_PARTIAL_TOKENS.has(token)
+  );
+}
+
+function isSemanticPartialMatch(correct, user) {
+  const userSequences = wordSequencesForSemanticMatch(user);
+  const correctSequences = wordSequencesForSemanticMatch(correct);
+
+  for (const correctWords of correctSequences) {
+    for (const userWords of userSequences) {
+      if (userWords.length === 0 || userWords.length >= correctWords.length) {
+        continue;
+      }
+
+      const startsWithUserWords = userWords.every((word, index) => correctWords[index] === word);
+      if (!startsWithUserWords) {
+        continue;
+      }
+
+      const omittedWords = correctWords.slice(userWords.length);
+      if (
+        omittedWords.length > 0 &&
+        omittedWords.every(word => SEMANTIC_QUALIFIER_TOKENS.has(word)) &&
+        hasDistinctivePartialToken(userWords)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function scoreCorrectAnswer(isBonus, scores) {
   if (isBonus) {
     scores.bonusScore++;
@@ -268,12 +415,12 @@ function scoreCorrectAnswer(isBonus, scores) {
   }
 }
 
-export function isCorrectLocalMatch(userAnswer, correctAnswer) {
+export function isCorrectLocalMatch(userAnswer, correctAnswer, acceptedAnswers = []) {
   if (isSafeNormalizedMatch(userAnswer, correctAnswer)) {
     return true;
   }
 
-  const correctOptions = correctAnswer.split(/\s+or\s+/i).map(option => option.trim());
+  const correctOptions = getAnswerOptions(correctAnswer, acceptedAnswers);
   const userAnswerNormalized = normalize(userAnswer);
   const userAnswerNormalizedNoSpaces = normalizeNoSpaces(userAnswer);
 
@@ -297,12 +444,16 @@ export function isCorrectLocalMatch(userAnswer, correctAnswer) {
     if (isMinorSpellingVariant(option, userAnswer)) {
       return true;
     }
+
+    if (isSemanticPartialMatch(option, userAnswer)) {
+      return true;
+    }
   }
 
   return false;
 }
 
-export function isQuestionRestatementAnswer(questionText, correctAnswer, userAnswer) {
+export function isQuestionRestatementAnswer(questionText, correctAnswer, userAnswer, acceptedAnswers = []) {
   const questionNormalized = normalize(questionText);
   const userAnswerNormalized = normalize(userAnswer);
 
@@ -310,7 +461,7 @@ export function isQuestionRestatementAnswer(questionText, correctAnswer, userAns
     return false;
   }
 
-  if (answerContainsCorrectAnswer(userAnswer, correctAnswer)) {
+  if (answerContainsCorrectAnswer(userAnswer, correctAnswer, acceptedAnswers)) {
     return false;
   }
 
@@ -334,7 +485,7 @@ export function isQuestionRestatementAnswer(questionText, correctAnswer, userAns
   return userTokens.length >= 2 && overlapRatio === 1 && userAnswerNormalized.length >= 12;
 }
 
-async function gradeWithAi(openai, question, correctAnswer, userAnswer) {
+async function gradeWithAi(openai, question, correctAnswer, userAnswer, acceptedAnswers = []) {
   const completion = await openai.chat.completions.create({
     model: 'gpt-4.1-nano',
     messages: [
@@ -344,7 +495,11 @@ async function gradeWithAi(openai, question, correctAnswer, userAnswer) {
           'You are a strict grader for short-answer trivia. ' +
           'Given a question, the canonical correct answer, and a user answer, decide if the user answer is truly correct.\n' +
           '- If the correct answer contains "or", any of the options listed is acceptable.\n' +
+          '- If accepted answers are provided, treat any listed accepted answer as correct.\n' +
           '- Treat acronyms/initialisms as correct when they match the initial letters of the canonical answer.\n' +
+          '- Accept shorter answers when they uniquely identify the canonical answer in the question context.\n' +
+          '- Accept omitted geographic, legal, corporate, edition, parenthetical, or descriptive qualifiers when the remaining answer is the recognizable name.\n' +
+          '- Reject partial answers that are too broad, ambiguous, category-only, location-only, or omit the distinctive part of the answer.\n' +
           '- Treat common grammatical variants (e.g., noun vs gerund) as correct when the base meaning is the same.\n' +
           '- Treat minor spelling errors or very small wording differences as CORRECT if they clearly refer to the same factual answer.\n' +
           '- Ignore punctuation, special characters, and extra descriptive text in parentheses/brackets when the factual answer is otherwise the same.\n' +
@@ -358,6 +513,7 @@ async function gradeWithAi(openai, question, correctAnswer, userAnswer) {
         content:
           `Question: ${question}\n` +
           `Correct answer: ${correctAnswer}\n` +
+          `Accepted answers: ${acceptedAnswers.length > 0 ? acceptedAnswers.join('; ') : 'None provided'}\n` +
           `User answer: ${userAnswer}`,
       },
     ],
@@ -379,6 +535,7 @@ export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissi
     const userAnswer = userSubmissions[i];
     const question = triviaDocument.questions[i];
     const correctAnswer = question.correctAnswer;
+    const acceptedAnswers = Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers : [];
     const isBonus = question.isBonus === true;
 
     if (!userAnswer) {
@@ -386,19 +543,19 @@ export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissi
       continue;
     }
 
-    if (isCorrectLocalMatch(userAnswer, correctAnswer)) {
+    if (isCorrectLocalMatch(userAnswer, correctAnswer, acceptedAnswers)) {
       scoreCorrectAnswer(isBonus, scores);
       aiVerdicts.push('exact');
       continue;
     }
 
-    if (isQuestionRestatementAnswer(question.question, correctAnswer, userAnswer)) {
+    if (isQuestionRestatementAnswer(question.question, correctAnswer, userAnswer, acceptedAnswers)) {
       aiVerdicts.push('question-copy');
       continue;
     }
 
     try {
-      const verdict = await gradeWithAi(openai, question.question, correctAnswer, userAnswer);
+      const verdict = await gradeWithAi(openai, question.question, correctAnswer, userAnswer, acceptedAnswers);
       aiVerdicts.push(verdict);
 
       if (verdict === 'correct') {

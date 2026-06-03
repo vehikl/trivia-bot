@@ -1,5 +1,17 @@
 import {getLastWeeksTrivia} from "../models/quiz/quiz.js";
 
+function getAcceptedAnswersText(item) {
+    const acceptedAnswers = Array.isArray(item.acceptedAnswers)
+        ? item.acceptedAnswers.map(answer => String(answer || '').trim()).filter(Boolean)
+        : [];
+
+    if (acceptedAnswers.length === 0) {
+        return '';
+    }
+
+    return `\nAlso accepted: ${acceptedAnswers.join(', ')}`;
+}
+
 export function answersCommand(app) {
     app.command('/answers', async ({ack, say}) => {
         await ack();
@@ -24,7 +36,7 @@ export function answersCommand(app) {
                     'type': 'section',
                     'text': {
                         'type': 'mrkdwn',
-                        'text': `Answer: *${item.correctAnswer}*`,
+                        'text': `Answer: *${item.correctAnswer}*${getAcceptedAnswersText(item)}`,
                     },
                 },
             );

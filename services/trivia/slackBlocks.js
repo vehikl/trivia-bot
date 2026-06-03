@@ -29,6 +29,18 @@ function getTriviaAttributionText(trivia) {
   return `Generated Quiz Submitted by: ${submittedByDisplay}`;
 }
 
+function getAcceptedAnswersText(item) {
+  const acceptedAnswers = Array.isArray(item.acceptedAnswers)
+    ? item.acceptedAnswers.map(answer => String(answer || '').trim()).filter(Boolean)
+    : [];
+
+  if (acceptedAnswers.length === 0) {
+    return '';
+  }
+
+  return `Also accepted: ${acceptedAnswers.join(', ')}\n`;
+}
+
 export function getRequestedByBlocks(trivia) {
   const attributionText = getTriviaAttributionText(trivia);
   if (!attributionText) {
@@ -94,7 +106,7 @@ export function buildAnswersBlocks(trivia) {
   trivia.questions.forEach((item, index) => {
     const questionLabel = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
     triviaWithAnswersText += `${questionLabel}: ${item.question}\n`;
-    triviaWithAnswersText += `Answer: ${item.correctAnswer}\n\n`;
+    triviaWithAnswersText += `Answer: ${item.correctAnswer}\n${getAcceptedAnswersText(item)}\n`;
   });
 
   return [
