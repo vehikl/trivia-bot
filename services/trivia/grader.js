@@ -525,6 +525,13 @@ async function gradeWithAi(openai, question, correctAnswer, userAnswer, accepted
 }
 
 export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissions) {
+  if (
+    userSubmissions.length !== triviaDocument.questions.length ||
+    userSubmissions.some(answer => !String(answer || '').trim())
+  ) {
+    throw new Error('Trivia submission must contain one non-empty answer per question.');
+  }
+
   const scores = {
     regularScore: 0,
     bonusScore: 0,
@@ -537,11 +544,6 @@ export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissi
     const correctAnswer = question.correctAnswer;
     const acceptedAnswers = Array.isArray(question.acceptedAnswers) ? question.acceptedAnswers : [];
     const isBonus = question.isBonus === true;
-
-    if (!userAnswer) {
-      aiVerdicts.push('no-answer');
-      continue;
-    }
 
     if (isCorrectLocalMatch(userAnswer, correctAnswer, acceptedAnswers)) {
       scoreCorrectAnswer(isBonus, scores);

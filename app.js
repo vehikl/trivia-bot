@@ -20,6 +20,7 @@ import {getNextThursday, getStartOfDay} from './services/utils/datetime.js';
 import {generateQuestionsForTopic} from './services/trivia/generateQuiz.js';
 import {gradeTriviaSubmission} from './services/trivia/grader.js';
 import {getTimeToScoreForSubmission, upsertLeaderboardMessage} from './services/trivia/leaderboard.js';
+import {extractTriviaAnswers, getTriviaAnswerErrors} from './services/trivia/modalAnswers.js';
 import {openTriviaModal} from './services/trivia/playModal.js';
 import {
   getLatestTriviaForPlay,
@@ -34,6 +35,7 @@ import {
 } from './services/trivia/slackBlocks.js';
 import {pickWeeklyTopic, pickTopicForCalendarDay} from './services/trivia/weeklyTopic.js';
 import {registerHomeView} from './services/slack/home.js';
+import {resolveUserIdentity} from './services/slack/userIdentity.js';
 
 dotenv.config();
 
@@ -316,21 +318,24 @@ async function startBot() {
 }
 
 app.view('trivia_view', async ({ ack, body, client }) => {
-  await ack();
-  let index = 0;
-  let userSubmissions = [];
-
   const userId = body.user.id;
   const metadata = body.view.private_metadata ? JSON.parse(body.view.private_metadata) : {};
+  const stateValues = body.view.state.values || {};
+  const answerErrors = getTriviaAnswerErrors(stateValues, metadata.questionCount);
+
+  if (Object.keys(answerErrors).length > 0) {
+    await ack({
+      response_action: 'errors',
+      errors: answerErrors,
+    });
+    return;
+  }
+
+  await ack();
+
+  const userSubmissions = extractTriviaAnswers(stateValues, metadata.questionCount);
   const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
   const responseChannelId = metadata.channelId || TRIVIA_CHANNEL_ID;
-
-  // Extract free-text answers from modal state
-  for (const property in body.view.state.values) {
-    const action = body.view.state.values[property][`answer-${index}`];
-    userSubmissions.push(action ? (action.value || '').trim() : '');
-    index++;
-  }
 
   const triviaDocument = await getTrivia({ date: metadata.quizDate });
   const {regularScore, bonusScore, aiVerdicts} = await gradeTriviaSubmission(
@@ -351,7 +356,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   const bonusCount = triviaDocument.questions.filter(q => q.isBonus === true).length;
 
   triviaDocument.questions.forEach((item, index) => {
-    const userAnswer = (userSubmissions[index] || '').trim() || 'No answer provided';
+    const userAnswer = userSubmissions[index];
     const correctAnswer = triviaDocument.questions[index].correctAnswer;
     const verdict = aiVerdicts[index];
     const label = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
@@ -391,8 +396,10 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   if (!alreadyPlayed) {
     const submittedAt = Date.now();
     const timeToScoreMs = getTimeToScoreForSubmission(triviaDocument, submittedAt);
+    const userIdentity = await resolveUserIdentity(client, body.user);
     const stored = await store({
       user_id: body.user.id,
+      ...userIdentity,
       user_score: regularScore,
       bonus_score: bonusScore,
       topic: triviaDocument.topic,

@@ -79,6 +79,7 @@ export async function openTriviaModal({body, client, logger, getDefaultTriviaFor
         private_metadata: JSON.stringify({
           quizDate: trivia.date,
           channelId,
+          questionCount: trivia.questions.length,
         }),
         title: {
           type: 'plain_text',

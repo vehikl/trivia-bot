@@ -67,3 +67,23 @@ test('gradeTriviaSubmission skips AI when local semantic matching succeeds', asy
   assert.deepEqual(result.aiVerdicts, ['exact']);
   assert.equal(aiCalls, 0);
 });
+
+test('gradeTriviaSubmission rejects incomplete answer payloads', async () => {
+  await assert.rejects(
+    gradeTriviaSubmission(
+      {},
+      {
+        questions: [
+          {
+            question: 'Which country hosted the inaugural World Cup?',
+            correctAnswer: 'Uruguay',
+            acceptedAnswers: [],
+            isBonus: false,
+          },
+        ],
+      },
+      ['   ']
+    ),
+    /one non-empty answer per question/
+  );
+});
