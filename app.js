@@ -6,6 +6,7 @@ import {
   getLastWeeksTrivia,
   getTrivia,
   getNextTrivia,
+  getRecentTriviaTopics,
   getTriviaForCalendarDay,
   recordTriviaPost,
   store as storeQuiz,
@@ -33,7 +34,11 @@ import {
   buildTriviaQuestionBlocks,
   getRequestedByBlocks,
 } from './services/trivia/slackBlocks.js';
-import {pickWeeklyTopic, pickTopicForCalendarDay} from './services/trivia/weeklyTopic.js';
+import {
+  getAutoTopicRepeatWindow,
+  pickWeeklyTopic,
+  pickTopicForCalendarDay,
+} from './services/trivia/weeklyTopic.js';
 import {registerHomeView} from './services/slack/home.js';
 import {resolveUserIdentity} from './services/slack/userIdentity.js';
 
@@ -262,10 +267,15 @@ async function startBot() {
       return;
     }
 
-    const topic = pickWeeklyTopic();
+    const date = getStartOfDay(getNextThursday());
+    const repeatWindow = getAutoTopicRepeatWindow();
+    const recentTopics = await getRecentTriviaTopics({
+      beforeDate: date,
+      limit: repeatWindow,
+    });
+    const topic = pickWeeklyTopic({recentTopics, repeatWindow});
     console.log('Auto-generating weekly quiz, topic:', topic);
     const payload = await generateQuestionsForTopic(openai, topic);
-    const date = getStartOfDay(getNextThursday());
     const questions = payload.questions.map((item) => ({
       question: item.question,
       correctAnswer: item.correctAnswer,

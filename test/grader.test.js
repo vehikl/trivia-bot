@@ -68,6 +68,39 @@ test('gradeTriviaSubmission skips AI when local semantic matching succeeds', asy
   assert.equal(aiCalls, 0);
 });
 
+test('gradeTriviaSubmission asks AI before marking question restatements incorrect', async () => {
+  let aiCalls = 0;
+  const openai = {
+    chat: {
+      completions: {
+        create: async () => {
+          aiCalls++;
+          return {choices: [{message: {content: 'incorrect'}}]};
+        },
+      },
+    },
+  };
+
+  const result = await gradeTriviaSubmission(
+    openai,
+    {
+      questions: [
+        {
+          question: 'This fermented barley drink is common in pubs. What is it?',
+          correctAnswer: 'Beer',
+          acceptedAnswers: [],
+          isBonus: false,
+        },
+      ],
+    },
+    ['fermented barley drink']
+  );
+
+  assert.equal(result.regularScore, 0);
+  assert.deepEqual(result.aiVerdicts, ['incorrect']);
+  assert.equal(aiCalls, 1);
+});
+
 test('gradeTriviaSubmission rejects incomplete answer payloads', async () => {
   await assert.rejects(
     gradeTriviaSubmission(

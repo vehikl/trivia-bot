@@ -551,11 +551,6 @@ export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissi
       continue;
     }
 
-    if (isQuestionRestatementAnswer(question.question, correctAnswer, userAnswer, acceptedAnswers)) {
-      aiVerdicts.push('question-copy');
-      continue;
-    }
-
     try {
       const verdict = await gradeWithAi(openai, question.question, correctAnswer, userAnswer, acceptedAnswers);
       aiVerdicts.push(verdict);

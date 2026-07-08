@@ -16,6 +16,28 @@ export async function getAllTopics() {
   return quizSnapshot.docs.map(doc => doc.data().topic);
 }
 
+export async function getRecentTriviaTopics(options = {}) {
+  const {beforeDate = new Date(), limit: topicLimit = 10} = options;
+  const resolvedLimit = Math.max(0, Number.parseInt(topicLimit, 10) || 0);
+
+  if (resolvedLimit === 0) {
+    return [];
+  }
+
+  const triviaRef = collection(firebaseDatabase, 'quizzes');
+  const recentTopicsQuery = query(
+    triviaRef,
+    where('date', '<', beforeDate),
+    orderBy('date', 'desc'),
+    limit(resolvedLimit)
+  );
+  const snapshot = await getDocs(recentTopicsQuery);
+
+  return snapshot.docs
+    .map(doc => doc.data().topic)
+    .filter(Boolean);
+}
+
 export async function getTrivia(quiz) {
   let quizDoc = {};
   // Handle potential Firestore timestamp

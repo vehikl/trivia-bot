@@ -42,6 +42,15 @@ function requestedByPayload(body, originalTopic) {
   };
 }
 
+function normalizeGeneratedQuestions(questions) {
+  return questions.map((item) => ({
+    question: item.question,
+    correctAnswer: item.correctAnswer,
+    acceptedAnswers: Array.isArray(item.acceptedAnswers) ? item.acceptedAnswers : [],
+    isBonus: item.isBonus,
+  }));
+}
+
 async function storeRequestedQuizForNextAvailableDate(getTriviaDate, quiz) {
   let lastAttemptedDate = null;
 
@@ -112,11 +121,7 @@ export function requestCommand(app, openai, options = {}) {
 
       const topic = normalizeTriviaTopicTitle(safety.topic || requestedTopic);
       const payload = await generateQuestionsForTopic(openai, topic);
-      const questions = payload.questions.map((item) => ({
-        question: item.question,
-        correctAnswer: item.correctAnswer,
-        isBonus: item.isBonus,
-      }));
+      const questions = normalizeGeneratedQuestions(payload.questions);
 
       const date = await storeRequestedQuizForNextAvailableDate(getTriviaDate, {
         topic,
