@@ -2,7 +2,10 @@ import {randomUUID} from 'node:crypto';
 import OpenAI from 'openai';
 import {store} from '../models/quiz/quiz.js';
 import {formatDate} from '../services/utils/datetime.js';
-import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
+import {
+  assertQuestionsHaveAcceptedAnswers,
+  generateQuestionsForTopic,
+} from '../services/trivia/generateQuiz.js';
 import {getNextAvailableTriviaDateForRequest} from '../services/trivia/runtime.js';
 import {validateTriviaTopic} from '../services/trivia/topicSafety.js';
 import {normalizeTriviaTopicTitle} from '../services/trivia/topicTitle.js';
@@ -47,6 +50,7 @@ function normalizeQuestions(questions) {
   return questions.map((item) => ({
     question: item.question,
     correctAnswer: item.correctAnswer,
+    acceptedAnswers: Array.isArray(item.acceptedAnswers) ? item.acceptedAnswers : [],
     isBonus: item.isBonus,
   }));
 }
@@ -197,6 +201,8 @@ async function generateDraft(topic, body, originalTopic) {
 }
 
 async function storeDraftForNextAvailableDate(draft, submittedBy) {
+  assertQuestionsHaveAcceptedAnswers(draft.questions);
+
   let lastAttemptedDate = null;
 
   for (let attempt = 1; attempt <= MAX_SAVE_DATE_ATTEMPTS; attempt++) {

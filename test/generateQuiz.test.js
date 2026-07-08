@@ -11,14 +11,26 @@ import {
   getBlockingFactCheckIssues,
   getBlockingValidationCorrections,
   getDuplicateAnswerIssues,
+  getMissingAcceptedAnswerIssues,
   getQuestionAnswerLeaks,
   getValidationCorrections,
 } from '../services/trivia/generateQuiz.js';
+
+function withAcceptedAnswerAliases(questions) {
+  return questions.map(item => ({
+    ...item,
+    acceptedAnswers: Array.isArray(item.acceptedAnswers) && item.acceptedAnswers.length > 0
+      ? item.acceptedAnswers
+      : [`${item.correctAnswer} Alternate`],
+  }));
+}
 
 test('quiz generation prompt requires accepted answer variants', () => {
   const prompt = buildQuizSystemPrompt('Famous Beverages');
 
   assert.match(prompt, /acceptedAnswers: string\[\]/);
+  assert.match(prompt, /Every question must have at least 1 acceptedAnswers entry/);
+  assert.match(prompt, /replace it with a different topic-matching answer/);
   assert.match(prompt, /common abbreviations, acronyms, alternate spellings/);
   assert.match(prompt, /location-only, category-only, overly broad, ambiguous/);
   assert.match(prompt, /Bonus Topic Fit/);
@@ -150,7 +162,7 @@ test('generation relies on validation agent for direct-answer and difficulty rew
               choices: [{
                 message: {
                   content: JSON.stringify({
-                    questions: correctedQuiz.questions.map(item => ({
+                    questions: withAcceptedAnswerAliases(correctedQuiz.questions).map(item => ({
                       ...item,
                       answerWasCorrect: true,
                       questionWasClear: true,
@@ -183,6 +195,7 @@ test('generation relies on validation agent for direct-answer and difficulty rew
   assert.equal(validationCalls, 1);
   assert.equal(quiz.questions[0].question, correctedQuiz.questions[0].question);
   assert.equal(quiz.questions[0].correctAnswer, 'Alpha Answer');
+  assert.deepEqual(quiz.questions[0].acceptedAnswers, ['Alpha Answer Alternate']);
   assert.equal(quiz.questions[0].isBonus, false);
   assert.equal(quiz.questions[1].correctAnswer, 'Beta Answer');
 });
@@ -658,6 +671,30 @@ test('duplicate answer scan flags repeated answer sets across questions', () => 
   assert.equal(issues[0].duplicateOfQuestionIndex, 0);
 });
 
+test('missing accepted answer scan flags empty or duplicate-only answer variants', () => {
+  const issues = getMissingAcceptedAnswerIssues([
+    {
+      correctAnswer: 'The Odyssey',
+      acceptedAnswers: ['Odyssey'],
+    },
+    {
+      correctAnswer: 'Starbucks',
+      acceptedAnswers: [],
+    },
+    {
+      correctAnswer: 'Moby-Dick',
+      acceptedAnswers: ['Moby-Dick'],
+    },
+  ]);
+
+  assert.equal(issues.length, 2);
+  assert.deepEqual(issues.map(issue => issue.questionIndex), [1, 2]);
+  assert.deepEqual(issues.map(issue => issue.type), [
+    'missing-accepted-answers',
+    'missing-accepted-answers',
+  ]);
+});
+
 test('validation retry prompt includes prior unresolved issues', () => {
   const priorIssues = [{
     questionIndex: 1,
@@ -758,7 +795,7 @@ test('auto-corrected final fact-check mismatch does not fail generation', async 
               choices: [{
                 message: {
                   content: JSON.stringify({
-                    questions: initialQuiz.questions.map(item => ({
+                    questions: withAcceptedAnswerAliases(initialQuiz.questions).map(item => ({
                       ...item,
                       answerWasCorrect: true,
                       questionWasClear: true,
@@ -789,6 +826,7 @@ test('auto-corrected final fact-check mismatch does not fail generation', async 
 
   assert.equal(quiz.questions[0].correctAnswer, 'Mexico City');
   assert.deepEqual(quiz.questions[0].acceptedAnswers, ['Ciudad de Mexico']);
+  assert.equal(quiz.questions.every(question => question.acceptedAnswers.length > 0), true);
 });
 
 test('generation retries from scratch when validation fails on first candidate', async () => {
@@ -861,7 +899,7 @@ test('generation retries from scratch when validation fails on first candidate',
               choices: [{
                 message: {
                   content: JSON.stringify({
-                    questions: quiz.questions.map(item => ({
+                    questions: withAcceptedAnswerAliases(quiz.questions).map(item => ({
                       independentlySolvedAnswer: item.correctAnswer,
                       acceptedAnswers: [],
                       questionWasClear: generationCalls === 1 ? false : true,
@@ -881,7 +919,7 @@ test('generation retries from scratch when validation fails on first candidate',
               choices: [{
                 message: {
                   content: JSON.stringify({
-                    questions: quiz.questions.map(item => ({
+                    questions: withAcceptedAnswerAliases(quiz.questions).map(item => ({
                       ...item,
                       answerWasCorrect: true,
                       questionWasClear: true,
@@ -912,4 +950,5 @@ test('generation retries from scratch when validation fails on first candidate',
 
   assert.equal(generationCalls, 2);
   assert.equal(quiz.questions[0].correctAnswer, 'Mexico City');
+  assert.equal(quiz.questions.every(question => question.acceptedAnswers.length > 0), true);
 });

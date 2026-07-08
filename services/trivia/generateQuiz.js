@@ -4,7 +4,7 @@ import {z} from 'zod';
 const question = z.object({
   question: z.string(),
   correctAnswer: z.string(),
-  acceptedAnswers: z.array(z.string()),
+  acceptedAnswers: z.array(z.string()).min(1),
   isBonus: z.boolean(),
 });
 
@@ -23,7 +23,7 @@ const repairQuestionsSchema = z.object({
 const answerValidationQuestion = z.object({
   question: z.string(),
   correctAnswer: z.string(),
-  acceptedAnswers: z.array(z.string()),
+  acceptedAnswers: z.array(z.string()).min(1),
   isBonus: z.boolean(),
   answerWasCorrect: z.boolean(),
   questionWasClear: z.boolean(),
@@ -53,6 +53,7 @@ const FACT_CHECK_MODEL = process.env.OPENAI_TRIVIA_FACT_CHECK_MODEL || VALIDATE_
 const MAX_ANSWER_VALIDATION_ATTEMPTS = 3;
 const MAX_GENERATION_ATTEMPTS = 3;
 const MAX_REPAIR_ATTEMPTS = 3;
+const MISSING_ACCEPTED_ANSWERS_ISSUE_TYPE = 'missing-accepted-answers';
 const BLOCKING_FACT_CHECK_ISSUE_TYPES = new Set(['unclear-question', 'missing-fact-check']);
 const SPECIFIC_QUESTION_STYLE_GUIDANCE =
   '- Write each question like a concise clue card: one specific clue sentence with 2 to 4 verifiable details before the ask.\n' +
@@ -190,7 +191,7 @@ export function buildQuizSystemPrompt(topic) {
         questions: Array<{
           question: string;       // Max 2 sentences. Does not directly include correctAnswer or acceptedAnswers.
           correctAnswer: string;  // Concise, canonical answer. Unique across the quiz.
-          acceptedAnswers: string[]; // Obvious variants, abbreviations, alternate names, and meaningful shortened forms. Empty array if none.
+          acceptedAnswers: string[]; // At least 1 obvious variant, abbreviation, alternate name, alternate spelling, or meaningful shortened form.
           isBonus: boolean;       // True for exactly 1 question, false for the other 5.
         }>;
       }
@@ -198,6 +199,8 @@ export function buildQuizSystemPrompt(topic) {
       ANSWER ACCEPTANCE:
       - correctAnswer must be the concise canonical answer to display after the quiz.
       - acceptedAnswers must include common abbreviations, acronyms, alternate spellings, former/current names, and shortened answers that still uniquely identify the same answer in context.
+      - Every question must have at least 1 acceptedAnswers entry after excluding duplicates of correctAnswer.
+      - Prefer answer choices with safe, common alternate forms. If a drafted answer truly has no conservative alternate answer, replace it with a different topic-matching answer that does.
       - Include a partial answer only when the omitted words are non-essential geographic, legal, corporate, edition, parenthetical, or descriptive qualifiers.
       - Do NOT include location-only, category-only, overly broad, ambiguous, or merely related answers.
       - Do NOT duplicate correctAnswer inside acceptedAnswers.
@@ -206,7 +209,7 @@ export function buildQuizSystemPrompt(topic) {
       CRITICAL EXECUTION STEPS FOR THE AI:
       1. Brainstorm 6 unique answers related to the theme, where no two answers are aliases or alternate names for the same thing.
       2. Draft the questions ensuring the max 2-sentence limit.
-      3. Add acceptedAnswers for each answer using the answer acceptance rules above.
+      3. Add at least 1 acceptedAnswers entry for each answer using the answer acceptance rules above.
       4. Strict Verification Step: Review your drafted JSON. First independently solve each question from the clue text and verify that the solution equals correctAnswer. Then verify that all 6 questions, especially the isBonus=true question, directly belong to the theme ${topic}. Then verify that the 6 answer sets are semantically distinct from each other. Then check that no question directly includes its exact correctAnswer or exact acceptedAnswers. Then rate each question's difficulty on a 0-to-10 scale where 0 is very hard and 10 is very easy. Questions under 8 are acceptable even when they clearly point to the answer. If any answer is off-topic, factually wrong, duplicated, equivalent, directly included in a question, or rated 8 or easier, replace that answer or rewrite that question completely before generating the final JSON string.
       `);
 }
@@ -373,6 +376,32 @@ export function getDuplicateAnswerIssues(questions) {
   });
 
   return issues;
+}
+
+export function getMissingAcceptedAnswerIssues(questions) {
+  return (Array.isArray(questions) ? questions : [])
+    .map((item, questionIndex) => ({
+      item,
+      questionIndex,
+      acceptedAnswers: normalizeAcceptedAnswers(item.acceptedAnswers, item.correctAnswer),
+    }))
+    .filter(({acceptedAnswers}) => acceptedAnswers.length === 0)
+    .map(({questionIndex, item}) => ({
+      questionIndex,
+      type: MISSING_ACCEPTED_ANSWERS_ISSUE_TYPE,
+      answer: item.correctAnswer,
+      reason:
+        `Question ${questionIndex + 1} has no acceptedAnswers after normalization. ` +
+        'Add at least one conservative alternate answer, abbreviation, alternate spelling, or meaningful shortened form. ' +
+        'If this answer has no safe alternate form, replace it with a topic-matching answer that does.',
+    }));
+}
+
+export function assertQuestionsHaveAcceptedAnswers(questions) {
+  const issues = getMissingAcceptedAnswerIssues(questions);
+  if (issues.length > 0) {
+    throw new Error(`Generated quiz is missing acceptedAnswers: ${JSON.stringify(issues)}`);
+  }
 }
 
 export function enforceIndependentFactCheck(quiz, independentFactCheck) {
@@ -557,6 +586,7 @@ export function buildIndependentFactCheckMessages(topic, quiz) {
         '- Example standard: a clue about the "Hand of God" goal in the 1986 World Cup points to Mexico City, not Buenos Aires.\n' +
         '- Set questionWasClear=false if the question is off-topic for the provided theme. Be especially strict with the isBonus=true question: it must directly fit the theme, not an adjacent or loosely related category.\n' +
         '- Provide acceptedAnswers for common abbreviations, alternate names, and meaningful shortened forms that identify the same answer.\n' +
+        '- For clear questions with a solved answer, provide at least 1 acceptedAnswers entry after excluding duplicates of the canonical answer.\n' +
         '- Keep acceptedAnswers conservative: no location-only, category-only, overly broad, ambiguous, or merely related answers.\n' +
         '- Set questionWasClear=false if the clue is ambiguous, internally inconsistent, or under-clued; otherwise true.\n' +
         '- Return JSON matching: { "questions": [ { "independentlySolvedAnswer": string, "acceptedAnswers": string[], "questionWasClear": boolean, "reason": string }, ... ] } with exactly 6 entries in the same order.',
@@ -625,6 +655,8 @@ export function buildAnswerValidationMessages(
         '- Ensure all 6 answer sets are semantically unique: no correctAnswer or acceptedAnswers entry may identify the same person, place, work, brand, event, concept, object, or entity as another question.\n' +
         '- If two questions point to the same answer or aliases of the same answer, keep the stronger question-answer pair and replace the duplicate answer with a different topic-matching canonical answer for that question.\n' +
         '- Ensure acceptedAnswers contains obvious variants, abbreviations, alternate names, and meaningful shortened forms that identify the same answer in context.\n' +
+        '- Every question must have at least 1 acceptedAnswers entry after excluding duplicates of correctAnswer.\n' +
+        '- Prefer answer choices with safe, common alternate forms. If a correctAnswer has no conservative alternate answer, replace that question-answer pair with a topic-matching answer that does.\n' +
         '- Keep acceptedAnswers conservative: remove broad partial answers, category-only answers, location-only answers, and merely related answers.\n' +
         '- Acceptable shortened answers may omit non-essential geographic, legal, corporate, edition, parenthetical, or descriptive qualifiers only when the remaining text is distinctive.\n' +
         '- Do not duplicate correctAnswer inside acceptedAnswers, and do not add an accepted answer that belongs to a different question.\n' +
@@ -776,6 +808,7 @@ async function validateAndRepairQuiz(openai, topic, quiz) {
     const blockingFactCheckIssues = getBlockingFactCheckIssues(finalFactCheck.issues);
     const duplicateAnswerIssues = getDuplicateAnswerIssues(candidateQuiz.questions);
     const answerLeakIssues = getAnswerLeakIssues(leaks);
+    const missingAcceptedAnswerIssues = getMissingAcceptedAnswerIssues(candidateQuiz.questions);
 
     if (answerLeakIssues.length > 0) {
       console.warn(
@@ -789,6 +822,7 @@ async function validateAndRepairQuiz(openai, topic, quiz) {
       ...blockingFactCheckIssues,
       ...duplicateAnswerIssues,
       ...answerLeakIssues,
+      ...missingAcceptedAnswerIssues,
     ];
 
     if (unresolvedIssues.length === 0) {
@@ -800,6 +834,7 @@ async function validateAndRepairQuiz(openai, topic, quiz) {
     (type && BLOCKING_FACT_CHECK_ISSUE_TYPES.has(type)) ||
     type === 'duplicate-answer' ||
     type === 'answer-leak' ||
+    type === MISSING_ACCEPTED_ANSWERS_ISSUE_TYPE ||
     (Array.isArray(issues) && issues.length > 0)
   );
   const leakFailures = blockingIssues.filter(({type}) => type === 'answer-leak');

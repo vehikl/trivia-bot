@@ -1,6 +1,9 @@
 import {getTriviaForCalendarDay, store as storeQuiz} from '../models/quiz/quiz.js';
 import {formatDate, getNextThursday, getStartOfDay} from '../services/utils/datetime.js';
-import {generateQuestionsForTopic} from '../services/trivia/generateQuiz.js';
+import {
+  assertQuestionsHaveAcceptedAnswers,
+  generateQuestionsForTopic,
+} from '../services/trivia/generateQuiz.js';
 import {validateTriviaTopic} from '../services/trivia/topicSafety.js';
 import {normalizeTriviaTopicTitle} from '../services/trivia/topicTitle.js';
 
@@ -52,6 +55,8 @@ function normalizeGeneratedQuestions(questions) {
 }
 
 async function storeRequestedQuizForNextAvailableDate(getTriviaDate, quiz) {
+  assertQuestionsHaveAcceptedAnswers(quiz.questions);
+
   let lastAttemptedDate = null;
 
   for (let attempt = 1; attempt <= MAX_SAVE_DATE_ATTEMPTS; attempt++) {
