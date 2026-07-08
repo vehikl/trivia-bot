@@ -37,6 +37,7 @@ Examples:
 - Slack app credentials
 - OpenAI API key
 - Firebase / Firestore project
+- Firebase CLI for the local Firestore emulator
 - A Slack workspace/channel for trivia
 
 ## Installation
@@ -53,3 +54,35 @@ Examples:
 ```bash
 npm install
 npm start
+```
+
+## Firestore Emulator Setup
+
+The app can use the local Firestore emulator during development. The emulator is configured in `firebase.json` to run Firestore on port `8080`.
+
+1. Install the Firebase CLI if you do not already have it:
+
+```bash
+npm install -g firebase-tools
+```
+
+2. Copy `.env.example` to `.env` and make sure these local development values are set:
+
+```bash
+NODE_ENV=development
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+```
+
+3. Start the Firestore emulator in one terminal:
+
+```bash
+firebase emulators:start --only firestore
+```
+
+4. Start the bot in another terminal:
+
+```bash
+npm start
+```
+
+When the emulator is running, Firestore data is stored locally instead of being written to the configured Firebase project. The emulator UI is available at `http://127.0.0.1:4000` unless Firebase chooses a different available port.

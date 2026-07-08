@@ -2,4 +2,7 @@
 .idea
 /node_modules
 .DS_Store
-*.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+*-debug.log
