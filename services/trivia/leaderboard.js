@@ -95,31 +95,6 @@ function getComparableTimeToScoreMillis(submission, trivia) {
   return getTimeToScoreMillis(submission, trivia) ?? getSubmissionTimeMillis(submission);
 }
 
-function formatDuration(ms) {
-  if (!Number.isFinite(ms)) {
-    return 'time unavailable';
-  }
-
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
-  if (totalSeconds < 1) {
-    return '<1s';
-  }
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`;
-  }
-
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-
-  return `${seconds}s`;
-}
-
 function buildProgressBar(count, total, width = 12) {
   if (total <= 0) {
     return '▱'.repeat(width);
@@ -141,12 +116,11 @@ function formatUserList(entries, maxUsers = 5) {
   return remaining > 0 ? `${users.join(', ')} +${remaining} more` : users.join(', ');
 }
 
-function formatLeaderboardScore(entry, trivia) {
-  const timeToScore = getTimeToScoreMillis(entry, trivia);
-  return `${getCombinedScore(entry)}/${entry.total_questions} in ${formatDuration(timeToScore)}`;
+function formatLeaderboardScore(entry) {
+  return `${getCombinedScore(entry)}/${entry.total_questions}`;
 }
 
-function buildTopThreeText(leaderboardData, trivia) {
+function buildTopThreeText(leaderboardData) {
   const medals = ['🥇', '🥈', '🥉'];
   const topThree = leaderboardData.slice(0, 3);
 
@@ -155,7 +129,7 @@ function buildTopThreeText(leaderboardData, trivia) {
   }
 
   return topThree
-    .map((entry, index) => `${medals[index]} ${index + 1}. <@${entry.user_id}> - ${formatLeaderboardScore(entry, trivia)}`)
+    .map((entry, index) => `${medals[index]} ${index + 1}. <@${entry.user_id}> - ${formatLeaderboardScore(entry)}`)
     .join('\n');
 }
 
@@ -206,7 +180,10 @@ function buildLeaderboardBlocks(trivia, leaderboardData, headingText) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*${topic} - TOP 3*\n${buildTopThreeText(leaderboardData, trivia)}`,
+        text:
+          `*${topic} - TOP 3*\n` +
+          `${buildTopThreeText(leaderboardData)}\n\n` +
+          '_Ranked by correct answers; submission time is used as the tiebreaker._',
       },
     },
     {

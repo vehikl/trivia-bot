@@ -18,7 +18,10 @@ import {playCommand} from './commands/play.js';
 import {requestCommand} from './commands/request.js';
 import {getSubmission, store} from "./models/submission/submission.js";
 import {getNextThursday, getStartOfDay} from './services/utils/datetime.js';
-import {generateQuestionsForTopic} from './services/trivia/generateQuiz.js';
+import {
+  assertQuestionsHaveAcceptedAnswers,
+  generateQuestionsForTopic,
+} from './services/trivia/generateQuiz.js';
 import {gradeTriviaSubmission} from './services/trivia/grader.js';
 import {getTimeToScoreForSubmission, upsertLeaderboardMessage} from './services/trivia/leaderboard.js';
 import {extractTriviaAnswers, getTriviaAnswerErrors} from './services/trivia/modalAnswers.js';
@@ -55,6 +58,10 @@ const app = new App({
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const TRIVIA_CRON_TIMEZONE = process.env.TRIVIA_CRON_TIMEZONE || 'America/Toronto';
+const TRIVIA_CRON_OPTIONS = {
+  timezone: TRIVIA_CRON_TIMEZONE,
+};
 
 function getAcceptedAnswersFeedback(item) {
   const acceptedAnswers = Array.isArray(item.acceptedAnswers)
@@ -66,6 +73,15 @@ function getAcceptedAnswersFeedback(item) {
   }
 
   return `Also Accepted: ${acceptedAnswers.join(', ')}\n`;
+}
+
+function normalizeGeneratedQuestions(questions) {
+  return questions.map((item) => ({
+    question: item.question,
+    correctAnswer: item.correctAnswer,
+    acceptedAnswers: Array.isArray(item.acceptedAnswers) ? item.acceptedAnswers : [],
+    isBonus: item.isBonus,
+  }));
 }
 
 allCommand(app);
@@ -98,7 +114,7 @@ async function startBot() {
 
   if (isDailyTestCronEnabled()) {
     console.log(
-      'TRIVIA_DAILY_TEST_CRON is on: every day at 9:00 — generate & post quiz for today (weekly Thursday cron disabled).'
+      `TRIVIA_DAILY_TEST_CRON is on: every day at 9:00 ${TRIVIA_CRON_TIMEZONE} — generate & post quiz for today (weekly Thursday cron disabled).`
     );
     cron.schedule('0 9 * * *', async () => {
       try {
@@ -112,11 +128,14 @@ async function startBot() {
       } catch (error) {
         console.error('[daily test cron] error:', error);
       }
-    });
+    }, TRIVIA_CRON_OPTIONS);
   } else {
     cron.schedule('0 9 * * 4', async () => {
       try {
-        console.log('Running weekly trivia cron job...', new Date().toISOString());
+        console.log(
+          `Running weekly trivia cron job scheduled for 9:00 ${TRIVIA_CRON_TIMEZONE}...`,
+          new Date().toISOString()
+        );
 
         await ensureThisWeeksQuizExists();
 
@@ -132,7 +151,7 @@ async function startBot() {
       } catch (error) {
         console.error('Error in cron job:', error);
       }
-    });
+    }, TRIVIA_CRON_OPTIONS);
   }
 
   // Function to post last week's trivia with answers
@@ -207,11 +226,8 @@ async function startBot() {
     const topic = pickTopicForCalendarDay(today);
     console.log('[daily test] Generating quiz for today, topic:', topic);
     const payload = await generateQuestionsForTopic(openai, topic);
-    const questions = payload.questions.map((item) => ({
-      question: item.question,
-      correctAnswer: item.correctAnswer,
-      isBonus: item.isBonus,
-    }));
+    const questions = normalizeGeneratedQuestions(payload.questions);
+    assertQuestionsHaveAcceptedAnswers(questions);
     const ok = await storeQuiz({topic, questions, date: today});
     if (!ok) {
       throw new Error('[daily test] Failed to store quiz');
@@ -276,11 +292,8 @@ async function startBot() {
     const topic = pickWeeklyTopic({recentTopics, repeatWindow});
     console.log('Auto-generating weekly quiz, topic:', topic);
     const payload = await generateQuestionsForTopic(openai, topic);
-    const questions = payload.questions.map((item) => ({
-      question: item.question,
-      correctAnswer: item.correctAnswer,
-      isBonus: item.isBonus,
-    }));
+    const questions = normalizeGeneratedQuestions(payload.questions);
+    assertQuestionsHaveAcceptedAnswers(questions);
     const ok = await storeQuiz({topic, questions, date});
     if (!ok) {
       throw new Error('Failed to store auto-generated weekly quiz');
