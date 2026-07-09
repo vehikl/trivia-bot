@@ -215,7 +215,7 @@ export async function upsertLeaderboardMessage(slackClient, trivia, options = {}
     return;
   }
 
-  const channel = options.channel || 'C04D6JZ0L67';
+  const channel = options.channel || 'CGKFYSLD8';
   const leaderboardData = await getWeeklyLeaderboard(trivia);
   if (!leaderboardData || leaderboardData.length === 0) {
     console.log(options.noSubmissionsLog || 'No submissions found for leaderboard');

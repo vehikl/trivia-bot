@@ -62,6 +62,11 @@ const TRIVIA_CRON_TIMEZONE = process.env.TRIVIA_CRON_TIMEZONE || 'America/Toront
 const TRIVIA_CRON_OPTIONS = {
   timezone: TRIVIA_CRON_TIMEZONE,
 };
+const DEFAULT_TRIVIA_CHANNEL_ID = 'CGKFYSLD8';
+
+function getTriviaChannelId() {
+  return process.env.SLACK_CHANNEL_ID?.trim() || DEFAULT_TRIVIA_CHANNEL_ID;
+}
 
 function getAcceptedAnswersFeedback(item) {
   const acceptedAnswers = Array.isArray(item.acceptedAnswers)
@@ -114,9 +119,9 @@ async function startBot() {
 
   if (isDailyTestCronEnabled()) {
     console.log(
-      `TRIVIA_DAILY_TEST_CRON is on: every day at 9:00 ${TRIVIA_CRON_TIMEZONE} — generate & post quiz for today (weekly Thursday cron disabled).`
+      `TRIVIA_DAILY_TEST_CRON is on: every day at 9:15 ${TRIVIA_CRON_TIMEZONE} — generate & post quiz for today (weekly Thursday cron disabled).`
     );
-    cron.schedule('0 9 * * *', async () => {
+    cron.schedule('15 9 * * *', async () => {
       try {
         console.log(
           '[daily test cron]',
@@ -130,10 +135,10 @@ async function startBot() {
       }
     }, TRIVIA_CRON_OPTIONS);
   } else {
-    cron.schedule('0 9 * * 4', async () => {
+    cron.schedule('15 9 * * 4', async () => {
       try {
         console.log(
-          `Running weekly trivia cron job scheduled for 9:00 ${TRIVIA_CRON_TIMEZONE}...`,
+          `Running weekly trivia cron job scheduled for 9:15 ${TRIVIA_CRON_TIMEZONE}...`,
           new Date().toISOString()
         );
 
@@ -157,7 +162,7 @@ async function startBot() {
   // Function to post last week's trivia with answers
   async function postLastWeeksTriviaWithAnswers() {
     const previousTrivia = await getLastWeeksTrivia();
-    const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
+    const TRIVIA_CHANNEL_ID = getTriviaChannelId();
     
     // Check if previousTrivia exists and has the required properties
     if (!previousTrivia || !previousTrivia.topic || !previousTrivia.questions) {
@@ -188,6 +193,7 @@ async function startBot() {
   // Add this function after postLastWeeksTriviaWithAnswers
   async function postWeeklyLeaderboard(previousTrivia, options = {}) {
     await upsertLeaderboardMessage(app.client, previousTrivia, {
+      channel: getTriviaChannelId(),
       fallbackText: `🏆 ${previousTrivia.topic} Leaderboard`,
       headingText: `🏆 **Last Week's Champions** 🏆`,
       noSubmissionsLog: 'No submissions found for leaderboard',
@@ -237,7 +243,7 @@ async function startBot() {
   async function postTodaysTrivia() {
     const today = getStartOfDay(new Date());
     const currentTrivia = await getTriviaForCalendarDay(today);
-    const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
+    const TRIVIA_CHANNEL_ID = getTriviaChannelId();
 
     if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
       console.log('[daily test] No trivia to post for today');
@@ -304,7 +310,7 @@ async function startBot() {
   async function postCurrentWeeksTrivia() {
     // Use getNextTrivia() instead of getTrivia() without parameters
     const currentTrivia = await getNextTrivia();
-    const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
+    const TRIVIA_CHANNEL_ID = getTriviaChannelId();
     
     // Check if currentTrivia exists and has the required properties
     if (!currentTrivia || !currentTrivia.topic || !currentTrivia.questions) {
@@ -357,7 +363,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   await ack();
 
   const userSubmissions = extractTriviaAnswers(stateValues, metadata.questionCount);
-  const TRIVIA_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
+  const TRIVIA_CHANNEL_ID = getTriviaChannelId();
   const responseChannelId = metadata.channelId || TRIVIA_CHANNEL_ID;
 
   const triviaDocument = await getTrivia({ date: metadata.quizDate });

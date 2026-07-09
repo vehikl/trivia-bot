@@ -3,7 +3,7 @@ import {getSubmission} from '../../models/submission/submission.js';
 
 export async function openTriviaModal({body, client, logger, getDefaultTriviaForPlay}) {
   const userId = body.user?.id ?? body.user_id;
-  const channelId = body.channel?.id || body.channel_id || 'C04D6JZ0L67';
+  const channelId = body.channel?.id || body.channel_id || 'CGKFYSLD8';
   const trivia = !body.text
     ? await getDefaultTriviaForPlay()
     : await getTrivia(body.text);
