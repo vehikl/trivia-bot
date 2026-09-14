@@ -141,10 +141,11 @@ export function requestCommand(app, openai, options = {}) {
       });
     } catch (error) {
       console.error('Error handling /request command:', error);
+      const details = (error?.message || (typeof error === 'string' ? error : '')).trim() || 'Please try again.';
       await app.client.chat.postEphemeral({
         channel: body.channel_id,
         user: body.user_id,
-        text: 'Sorry, I could not generate that requested trivia topic. Please try again.',
+        text: `Sorry, I could not generate that requested trivia topic. ${details}`,
       });
     }
   });
