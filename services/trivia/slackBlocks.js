@@ -58,6 +58,38 @@ export function getRequestedByBlocks(trivia) {
   ];
 }
 
+export function buildAnswerFeedback(item, userAnswer, verdict, explanation = '') {
+  if (verdict === 'exact' || verdict === 'correct') {
+    return `Your Answer: ${userAnswer} ✅\n`;
+  }
+
+  // Keep generated feedback on one line and prevent Slack formatting or mentions.
+  const plainExplanation = explanation.replace(/`/g, '').replace(/\s+/g, ' ').trim()
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const reason = plainExplanation ? `Why: ${plainExplanation}\n` : '';
+  return `Your Answer: ${userAnswer} ❌\nCorrect Answer: ${item.correctAnswer}\n${getAcceptedAnswersText(item)}${reason}`;
+}
+
+export function buildSubmissionFeedbackBlocks(text) {
+  const blocks = [];
+  // Leave room for the code fences within Slack's section text limit.
+  const maxTextLength = 2900;
+  let remaining = text;
+  while (remaining.length > 0) {
+    let end = Math.min(remaining.length, maxTextLength);
+    if (remaining.length > maxTextLength) {
+      const newline = remaining.lastIndexOf('\n', maxTextLength - 1);
+      if (newline >= 0) end = newline + 1;
+    }
+    blocks.push({
+      type: 'section',
+      text: {type: 'mrkdwn', text: `\`\`\`${remaining.slice(0, end)}\`\`\``},
+    });
+    remaining = remaining.slice(end);
+  }
+  return blocks;
+}
+
 export function buildTriviaQuestionBlocks(trivia) {
   const title = titleCaseWords(trivia.topic);
   let questionText = `${title}\n`;

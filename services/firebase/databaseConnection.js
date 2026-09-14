@@ -17,8 +17,9 @@ const firebaseApp = initializeApp(firebaseConfig);
 const firebaseDatabase = getFirestore(firebaseApp);
 
 // Optional: Connect to emulator for development
-if (process.env.NODE_ENV === 'development' && process.env.FIRESTORE_EMULATOR_HOST) {
-    connectFirestoreEmulator(firebaseDatabase, 'localhost', 8080);
+if (process.env.FIRESTORE_EMULATOR_HOST) {
+    const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
+    connectFirestoreEmulator(firebaseDatabase, host, Number(port));
 }
 
 export default firebaseDatabase;

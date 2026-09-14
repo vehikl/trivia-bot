@@ -33,6 +33,8 @@ import {
 } from './services/trivia/runtime.js';
 import {
   buildAnswersBlocks,
+  buildAnswerFeedback,
+  buildSubmissionFeedbackBlocks,
   buildPlayButtonBlock,
   buildTriviaQuestionBlocks,
   getRequestedByBlocks,
@@ -66,18 +68,6 @@ const DEFAULT_TRIVIA_CHANNEL_ID = 'CGKFYSLD8';
 
 function getTriviaChannelId() {
   return process.env.SLACK_CHANNEL_ID?.trim() || DEFAULT_TRIVIA_CHANNEL_ID;
-}
-
-function getAcceptedAnswersFeedback(item) {
-  const acceptedAnswers = Array.isArray(item.acceptedAnswers)
-    ? item.acceptedAnswers.map(answer => String(answer || '').trim()).filter(Boolean)
-    : [];
-
-  if (acceptedAnswers.length === 0) {
-    return '';
-  }
-
-  return `Also Accepted: ${acceptedAnswers.join(', ')}\n`;
 }
 
 function normalizeGeneratedQuestions(questions) {
@@ -367,11 +357,19 @@ app.view('trivia_view', async ({ ack, body, client }) => {
   const responseChannelId = metadata.channelId || TRIVIA_CHANNEL_ID;
 
   const triviaDocument = await getTrivia({ date: metadata.quizDate });
-  const {regularScore, bonusScore, aiVerdicts} = await gradeTriviaSubmission(
-    openai,
-    triviaDocument,
-    userSubmissions
-  );
+  let gradingResult;
+  try {
+    gradingResult = await gradeTriviaSubmission(openai, triviaDocument, userSubmissions);
+  } catch (error) {
+    console.error('Unable to finish grading trivia submission:', error);
+    await client.chat.postEphemeral({
+      channel: responseChannelId,
+      user: userId,
+      text: 'Sorry, I couldn’t finish reviewing your answers. This attempt was not scored or saved. Please use /play to try again.',
+    });
+    return;
+  }
+  const {regularScore, bonusScore, aiVerdicts, aiExplanations} = gradingResult;
 
   const submission = await getSubmission(userId, triviaDocument);
   const alreadyPlayed = Boolean(submission);
@@ -386,16 +384,10 @@ app.view('trivia_view', async ({ ack, body, client }) => {
 
   triviaDocument.questions.forEach((item, index) => {
     const userAnswer = userSubmissions[index];
-    const correctAnswer = triviaDocument.questions[index].correctAnswer;
     const verdict = aiVerdicts[index];
     const label = item.isBonus ? 'Bonus Question' : `Question ${index + 1}`;
 
-    let answerFeedback = '';
-    if (verdict === 'exact' || verdict === 'correct') {
-      answerFeedback = `Your Answer: ${userAnswer} ✅\n`;
-    } else {
-      answerFeedback = `Your Answer: ${userAnswer} ❌\nCorrect Answer: ${correctAnswer}\n${getAcceptedAnswersFeedback(item)}`;
-    }
+    const answerFeedback = buildAnswerFeedback(item, userAnswer, verdict, aiExplanations[index]);
 
     questionText += `*${label}: ${item.question}*\n${answerFeedback}\n`;
   });
@@ -410,15 +402,7 @@ app.view('trivia_view', async ({ ack, body, client }) => {
     questionText += `\nNote: This submission will not be counted since you've already played.\n`;
   }
 
-  let questionBlocks = [
-    {
-      'type': 'section',
-      'text': {
-        'type': 'mrkdwn',
-        'text': `\`\`\`${questionText}\`\`\``, // Wrap all text in one code block
-      },
-    },
-  ];
+  const questionBlocks = buildSubmissionFeedbackBlocks(questionText);
 
   const quizDate = new Date(triviaDocument.date.seconds * 1000); // Quiz date as Date object
 
