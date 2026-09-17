@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   gradeTriviaSubmission,
+  hasMeaningfulAnswerContent,
   isCorrectLocalMatch,
   isQuestionRestatementAnswer,
 } from '../services/trivia/grader.js';
@@ -311,3 +312,49 @@ test('gradeTriviaSubmission rejects incomplete answer payloads', async () => {
     /one non-empty answer per question/
   );
 });
+
+test('hasMeaningfulAnswerContent rejects punctuation-only answers', () => {
+  assert.equal(hasMeaningfulAnswerContent('?'), false);
+  assert.equal(hasMeaningfulAnswerContent('???'), false);
+  assert.equal(hasMeaningfulAnswerContent('...'), false);
+  assert.equal(hasMeaningfulAnswerContent('-'), false);
+  assert.equal(hasMeaningfulAnswerContent('!@#$'), false);
+  assert.equal(hasMeaningfulAnswerContent('   '), false);
+  assert.equal(hasMeaningfulAnswerContent('Chichen Itza'), true);
+  assert.equal(hasMeaningfulAnswerContent('A'), true);
+  assert.equal(hasMeaningfulAnswerContent('7'), true);
+});
+
+test('gradeTriviaSubmission skips AI and marks punctuation-only answers incorrect deterministically', async () => {
+  let aiCalls = 0;
+  const openai = {
+    chat: {
+      completions: {
+        create: async () => {
+          aiCalls++;
+          return {choices: [{message: {content: 'correct'}}]};
+        },
+      },
+    },
+  };
+
+  const result = await gradeTriviaSubmission(
+    openai,
+    {
+      questions: [
+        {
+          question: 'Name the Mayan city in the Yucatán Peninsula known for its pyramid dedicated to Kukulcán.',
+          correctAnswer: 'Chichen Itza',
+          acceptedAnswers: ['Chichén Itzá'],
+          isBonus: false,
+        },
+      ],
+    },
+    ['?']
+  );
+
+  assert.equal(result.regularScore, 0);
+  assert.deepEqual(result.aiVerdicts, ['incorrect']);
+  assert.equal(aiCalls, 0);
+});
+
