@@ -423,6 +423,18 @@ function scoreCorrectAnswer(isBonus, scores) {
   }
 }
 
+export function hasMeaningfulAnswerContent(text) {
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
+
+  if (!/[a-zA-Z0-9]/.test(text)) {
+    return false;
+  }
+
+  return normalize(text).length > 0;
+}
+
 export function isCorrectLocalMatch(userAnswer, correctAnswer, acceptedAnswers = []) {
   if (isSafeNormalizedMatch(userAnswer, correctAnswer)) {
     return true;
@@ -589,6 +601,11 @@ export async function gradeTriviaSubmission(openai, triviaDocument, userSubmissi
       scoreCorrectAnswer(isBonus, scores);
       aiVerdicts.push('exact');
       aiExplanations.push('');
+      continue;
+    }
+
+    if (!hasMeaningfulAnswerContent(userAnswer)) {
+      aiVerdicts.push('incorrect');
       continue;
     }
 
