@@ -36,6 +36,7 @@ export async function openTriviaModal({body, client, logger, getDefaultTriviaFor
     questionsBlock.push({
       type: 'input',
       block_id: `question-${index}`,
+      optional: true,
       label: {
         type: 'plain_text',
         text: label,
