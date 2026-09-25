@@ -18,7 +18,7 @@ test('extracts answers by block and action index instead of object order', () =>
   assert.deepEqual(extractTriviaAnswers(stateValues, 2), ['Uruguay', 'Brazil']);
 });
 
-test('returns Slack block errors for blank and whitespace-only answers', () => {
+test('allows blank and whitespace-only answers without errors', () => {
   const stateValues = {
     'question-0': {
       'answer-0': {value: '   '},
@@ -31,20 +31,15 @@ test('returns Slack block errors for blank and whitespace-only answers', () => {
     },
   };
 
-  assert.deepEqual(getTriviaAnswerErrors(stateValues, 3), {
-    'question-0': 'Please provide an answer.',
-    'question-2': 'Please provide an answer.',
-  });
+  assert.deepEqual(getTriviaAnswerErrors(stateValues, 3), {});
 });
 
-test('detects a missing expected answer block', () => {
+test('allows missing expected answer blocks without errors', () => {
   const stateValues = {
     'question-0': {
       'answer-0': {value: 'Uruguay'},
     },
   };
 
-  assert.deepEqual(getTriviaAnswerErrors(stateValues, 2), {
-    'question-1': 'Please provide an answer.',
-  });
+  assert.deepEqual(getTriviaAnswerErrors(stateValues, 2), {});
 });

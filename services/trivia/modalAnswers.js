@@ -23,11 +23,5 @@ export function extractTriviaAnswers(stateValues, configuredCount) {
 export function getTriviaAnswerErrors(stateValues, configuredCount) {
   const errors = {};
 
-  extractTriviaAnswers(stateValues, configuredCount).forEach((answer, index) => {
-    if (!answer) {
-      errors[`question-${index}`] = 'Please provide an answer.';
-    }
-  });
-
   return errors;
 }

@@ -307,9 +307,9 @@ test('gradeTriviaSubmission rejects incomplete answer payloads', async () => {
           },
         ],
       },
-      ['   ']
+      []
     ),
-    /one non-empty answer per question/
+    /one answer per question/
   );
 });
 
@@ -355,6 +355,74 @@ test('gradeTriviaSubmission skips AI and marks punctuation-only answers incorrec
 
   assert.equal(result.regularScore, 0);
   assert.deepEqual(result.aiVerdicts, ['incorrect']);
+  assert.deepEqual(result.aiExplanations, ['']);
   assert.equal(aiCalls, 0);
 });
 
+test('gradeTriviaSubmission skips AI and marks empty answers incorrect deterministically', async () => {
+  let aiCalls = 0;
+  const openai = {
+    chat: {
+      completions: {
+        create: async () => {
+          aiCalls++;
+          return {choices: [{message: {content: 'correct'}}]};
+        },
+      },
+    },
+  };
+
+  const result = await gradeTriviaSubmission(
+    openai,
+    {
+      questions: [
+        {
+          question: 'Name the Mayan city in the Yucatán Peninsula known for its pyramid dedicated to Kukulcán.',
+          correctAnswer: 'Chichen Itza',
+          acceptedAnswers: ['Chichén Itzá'],
+          isBonus: false,
+        },
+      ],
+    },
+    ['']
+  );
+
+  assert.equal(result.regularScore, 0);
+  assert.deepEqual(result.aiVerdicts, ['incorrect']);
+  assert.deepEqual(result.aiExplanations, ['']);
+  assert.equal(aiCalls, 0);
+});
+
+test('gradeTriviaSubmission preserves explanation alignment with empty and bonus answers', async () => {
+  const result = await gradeTriviaSubmission(
+    {},
+    {
+      questions: [
+        {
+          question: 'Question 1',
+          correctAnswer: 'Answer 1',
+          acceptedAnswers: [],
+          isBonus: false,
+        },
+        {
+          question: 'Question 2',
+          correctAnswer: 'Answer 2',
+          acceptedAnswers: [],
+          isBonus: false,
+        },
+        {
+          question: 'Bonus Question',
+          correctAnswer: 'Answer 3',
+          acceptedAnswers: [],
+          isBonus: true,
+        },
+      ],
+    },
+    ['', 'Answer 2', '']
+  );
+
+  assert.equal(result.regularScore, 1);
+  assert.equal(result.bonusScore, 0);
+  assert.deepEqual(result.aiVerdicts, ['incorrect', 'exact', 'incorrect']);
+  assert.deepEqual(result.aiExplanations, ['', '', '']);
+});
